@@ -1,0 +1,161 @@
+traffic_pattern_id,corridor_name,direction,served_areas,time_slot,time_range,day_type,congestion_multiplier,avg_speed_kmh,delay_per_km_min,congestion_level
+TP0001,Mombasa Road,south-east,A11|A12|A27|A28|A30,early_morning,05:00-07:00,weekday,1.6,31.2,0.723,2
+TP0002,Mombasa Road,south-east,A11|A12|A27|A28|A30,early_morning,05:00-07:00,weekend,1.01,49.5,0.012,0
+TP0003,Mombasa Road,south-east,A11|A12|A27|A28|A30,morning_rush,07:00-09:00,weekday,4.0,12.5,3.6,10
+TP0004,Mombasa Road,south-east,A11|A12|A27|A28|A30,morning_rush,07:00-09:00,weekend,2.67,18.7,2.009,6
+TP0005,Mombasa Road,south-east,A11|A12|A27|A28|A30,mid_morning,09:00-11:00,weekday,2.25,22.2,1.503,4
+TP0006,Mombasa Road,south-east,A11|A12|A27|A28|A30,mid_morning,09:00-11:00,weekend,1.59,31.4,0.711,2
+TP0007,Mombasa Road,south-east,A11|A12|A27|A28|A30,midday,11:00-14:00,weekday,2.13,23.5,1.353,4
+TP0008,Mombasa Road,south-east,A11|A12|A27|A28|A30,midday,11:00-14:00,weekend,1.39,36.0,0.467,1
+TP0009,Mombasa Road,south-east,A11|A12|A27|A28|A30,early_afternoon,14:00-16:00,weekday,2.13,23.5,1.353,4
+TP0010,Mombasa Road,south-east,A11|A12|A27|A28|A30,early_afternoon,14:00-16:00,weekend,1.43,35.0,0.514,1
+TP0011,Mombasa Road,south-east,A11|A12|A27|A28|A30,evening_rush,16:00-19:00,weekday,4.0,12.5,3.6,10
+TP0012,Mombasa Road,south-east,A11|A12|A27|A28|A30,evening_rush,16:00-19:00,weekend,3.0,16.7,2.393,7
+TP0013,Mombasa Road,south-east,A11|A12|A27|A28|A30,evening,19:00-21:00,weekday,2.51,19.9,1.815,5
+TP0014,Mombasa Road,south-east,A11|A12|A27|A28|A30,evening,19:00-21:00,weekend,1.66,30.1,0.793,2
+TP0015,Mombasa Road,south-east,A11|A12|A27|A28|A30,night,21:00-05:00,weekday,1.42,35.2,0.505,1
+TP0016,Mombasa Road,south-east,A11|A12|A27|A28|A30,night,21:00-05:00,weekend,0.9,55.6,-0.121,0
+TP0017,Thika Road,north,A13|A14|A15|A16,early_morning,05:00-07:00,weekday,1.51,33.1,0.613,2
+TP0018,Thika Road,north,A13|A14|A15|A16,early_morning,05:00-07:00,weekend,0.93,53.8,-0.085,0
+TP0019,Thika Road,north,A13|A14|A15|A16,morning_rush,07:00-09:00,weekday,4.0,12.5,3.6,10
+TP0020,Thika Road,north,A13|A14|A15|A16,morning_rush,07:00-09:00,weekend,2.55,19.6,1.861,5
+TP0021,Thika Road,north,A13|A14|A15|A16,mid_morning,09:00-11:00,weekday,2.31,21.6,1.578,4
+TP0022,Thika Road,north,A13|A14|A15|A16,mid_morning,09:00-11:00,weekend,1.44,34.7,0.529,1
+TP0023,Thika Road,north,A13|A14|A15|A16,midday,11:00-14:00,weekday,2.09,23.9,1.31,4
+TP0024,Thika Road,north,A13|A14|A15|A16,midday,11:00-14:00,weekend,1.35,37.0,0.422,1
+TP0025,Thika Road,north,A13|A14|A15|A16,early_afternoon,14:00-16:00,weekday,2.18,22.9,1.42,4
+TP0026,Thika Road,north,A13|A14|A15|A16,early_afternoon,14:00-16:00,weekend,1.34,37.3,0.409,1
+TP0027,Thika Road,north,A13|A14|A15|A16,evening_rush,16:00-19:00,weekday,4.0,12.5,3.6,10
+TP0028,Thika Road,north,A13|A14|A15|A16,evening_rush,16:00-19:00,weekend,2.64,18.9,1.975,5
+TP0029,Thika Road,north,A13|A14|A15|A16,evening,19:00-21:00,weekday,2.29,21.8,1.552,4
+TP0030,Thika Road,north,A13|A14|A15|A16,evening,19:00-21:00,weekend,1.57,31.8,0.687,2
+TP0031,Thika Road,north,A13|A14|A15|A16,night,21:00-05:00,weekday,1.41,35.5,0.49,1
+TP0032,Thika Road,north,A13|A14|A15|A16,night,21:00-05:00,weekend,0.94,53.2,-0.072,0
+TP0033,Ngong Road,south-west,A22|A05|A04|A25,early_morning,05:00-07:00,weekday,1.41,35.5,0.49,1
+TP0034,Ngong Road,south-west,A22|A05|A04|A25,early_morning,05:00-07:00,weekend,0.92,54.3,-0.095,0
+TP0035,Ngong Road,south-west,A22|A05|A04|A25,morning_rush,07:00-09:00,weekday,3.71,13.5,3.244,9
+TP0036,Ngong Road,south-west,A22|A05|A04|A25,morning_rush,07:00-09:00,weekend,2.34,21.4,1.604,4
+TP0037,Ngong Road,south-west,A22|A05|A04|A25,mid_morning,09:00-11:00,weekday,2.08,24.0,1.3,4
+TP0038,Ngong Road,south-west,A22|A05|A04|A25,mid_morning,09:00-11:00,weekend,1.4,35.7,0.481,1
+TP0039,Ngong Road,south-west,A22|A05|A04|A25,midday,11:00-14:00,weekday,1.87,26.7,1.047,3
+TP0040,Ngong Road,south-west,A22|A05|A04|A25,midday,11:00-14:00,weekend,1.27,39.4,0.323,1
+TP0041,Ngong Road,south-west,A22|A05|A04|A25,early_afternoon,14:00-16:00,weekday,2.03,24.6,1.239,3
+TP0042,Ngong Road,south-west,A22|A05|A04|A25,early_afternoon,14:00-16:00,weekend,1.37,36.5,0.444,1
+TP0043,Ngong Road,south-west,A22|A05|A04|A25,evening_rush,16:00-19:00,weekday,4.0,12.5,3.6,10
+TP0044,Ngong Road,south-west,A22|A05|A04|A25,evening_rush,16:00-19:00,weekend,2.6,19.2,1.925,5
+TP0045,Ngong Road,south-west,A22|A05|A04|A25,evening,19:00-21:00,weekday,2.36,21.2,1.63,5
+TP0046,Ngong Road,south-west,A22|A05|A04|A25,evening,19:00-21:00,weekend,1.53,32.7,0.635,2
+TP0047,Ngong Road,south-west,A22|A05|A04|A25,night,21:00-05:00,weekday,1.31,38.2,0.371,1
+TP0048,Ngong Road,south-west,A22|A05|A04|A25,night,21:00-05:00,weekend,0.84,59.5,-0.192,-1
+TP0049,Waiyaki Way,west,A02|A23|A29,early_morning,05:00-07:00,weekday,1.41,35.5,0.49,1
+TP0050,Waiyaki Way,west,A02|A23|A29,early_morning,05:00-07:00,weekend,0.86,58.1,-0.167,0
+TP0051,Waiyaki Way,west,A02|A23|A29,morning_rush,07:00-09:00,weekday,3.46,14.5,2.938,8
+TP0052,Waiyaki Way,west,A02|A23|A29,morning_rush,07:00-09:00,weekend,2.2,22.7,1.443,4
+TP0053,Waiyaki Way,west,A02|A23|A29,mid_morning,09:00-11:00,weekday,2.13,23.5,1.353,4
+TP0054,Waiyaki Way,west,A02|A23|A29,mid_morning,09:00-11:00,weekend,1.37,36.5,0.444,1
+TP0055,Waiyaki Way,west,A02|A23|A29,midday,11:00-14:00,weekday,1.88,26.6,1.056,3
+TP0056,Waiyaki Way,west,A02|A23|A29,midday,11:00-14:00,weekend,1.23,40.7,0.274,1
+TP0057,Waiyaki Way,west,A02|A23|A29,early_afternoon,14:00-16:00,weekday,1.95,25.6,1.144,3
+TP0058,Waiyaki Way,west,A02|A23|A29,early_afternoon,14:00-16:00,weekend,1.28,39.1,0.335,1
+TP0059,Waiyaki Way,west,A02|A23|A29,evening_rush,16:00-19:00,weekday,3.77,13.3,3.311,9
+TP0060,Waiyaki Way,west,A02|A23|A29,evening_rush,16:00-19:00,weekend,2.44,20.5,1.727,5
+TP0061,Waiyaki Way,west,A02|A23|A29,evening,19:00-21:00,weekday,2.22,22.5,1.467,4
+TP0062,Waiyaki Way,west,A02|A23|A29,evening,19:00-21:00,weekend,1.42,35.2,0.505,1
+TP0063,Waiyaki Way,west,A02|A23|A29,night,21:00-05:00,weekday,1.27,39.4,0.323,1
+TP0064,Waiyaki Way,west,A02|A23|A29,night,21:00-05:00,weekend,0.84,59.5,-0.192,-1
+TP0065,Jogoo Road,east,A08|A11|A12,early_morning,05:00-07:00,weekday,1.34,37.3,0.409,1
+TP0066,Jogoo Road,east,A08|A11|A12,early_morning,05:00-07:00,weekend,0.86,58.1,-0.167,0
+TP0067,Jogoo Road,east,A08|A11|A12,morning_rush,07:00-09:00,weekday,3.43,14.6,2.91,8
+TP0068,Jogoo Road,east,A08|A11|A12,morning_rush,07:00-09:00,weekend,2.17,23.0,1.409,4
+TP0069,Jogoo Road,east,A08|A11|A12,mid_morning,09:00-11:00,weekday,1.89,26.5,1.064,3
+TP0070,Jogoo Road,east,A08|A11|A12,mid_morning,09:00-11:00,weekend,1.28,39.1,0.335,1
+TP0071,Jogoo Road,east,A08|A11|A12,midday,11:00-14:00,weekday,1.71,29.2,0.855,2
+TP0072,Jogoo Road,east,A08|A11|A12,midday,11:00-14:00,weekend,1.13,44.2,0.157,0
+TP0073,Jogoo Road,east,A08|A11|A12,early_afternoon,14:00-16:00,weekday,1.94,25.8,1.126,3
+TP0074,Jogoo Road,east,A08|A11|A12,early_afternoon,14:00-16:00,weekend,1.18,42.4,0.215,1
+TP0075,Jogoo Road,east,A08|A11|A12,evening_rush,16:00-19:00,weekday,3.57,14.0,3.086,9
+TP0076,Jogoo Road,east,A08|A11|A12,evening_rush,16:00-19:00,weekend,2.38,21.0,1.657,5
+TP0077,Jogoo Road,east,A08|A11|A12,evening,19:00-21:00,weekday,2.05,24.4,1.259,3
+TP0078,Jogoo Road,east,A08|A11|A12,evening,19:00-21:00,weekend,1.38,36.2,0.457,1
+TP0079,Jogoo Road,east,A08|A11|A12,night,21:00-05:00,weekday,1.22,41.0,0.263,1
+TP0080,Jogoo Road,east,A08|A11|A12,night,21:00-05:00,weekend,0.81,61.7,-0.228,-1
+TP0081,Outer Ring Road,east-ring,A08|A13|A12,early_morning,05:00-07:00,weekday,1.34,37.3,0.409,1
+TP0082,Outer Ring Road,east-ring,A08|A13|A12,early_morning,05:00-07:00,weekend,0.85,58.8,-0.18,-1
+TP0083,Outer Ring Road,east-ring,A08|A13|A12,morning_rush,07:00-09:00,weekday,3.52,14.2,3.025,8
+TP0084,Outer Ring Road,east-ring,A08|A13|A12,morning_rush,07:00-09:00,weekend,2.14,23.4,1.364,4
+TP0085,Outer Ring Road,east-ring,A08|A13|A12,mid_morning,09:00-11:00,weekday,1.89,26.5,1.064,3
+TP0086,Outer Ring Road,east-ring,A08|A13|A12,mid_morning,09:00-11:00,weekend,1.23,40.7,0.274,1
+TP0087,Outer Ring Road,east-ring,A08|A13|A12,midday,11:00-14:00,weekday,1.8,27.8,0.958,3
+TP0088,Outer Ring Road,east-ring,A08|A13|A12,midday,11:00-14:00,weekend,1.14,43.9,0.167,0
+TP0089,Outer Ring Road,east-ring,A08|A13|A12,early_afternoon,14:00-16:00,weekday,1.81,27.6,0.974,3
+TP0090,Outer Ring Road,east-ring,A08|A13|A12,early_afternoon,14:00-16:00,weekend,1.22,41.0,0.263,1
+TP0091,Outer Ring Road,east-ring,A08|A13|A12,evening_rush,16:00-19:00,weekday,3.61,13.9,3.117,9
+TP0092,Outer Ring Road,east-ring,A08|A13|A12,evening_rush,16:00-19:00,weekend,2.48,20.2,1.77,5
+TP0093,Outer Ring Road,east-ring,A08|A13|A12,evening,19:00-21:00,weekday,2.08,24.0,1.3,4
+TP0094,Outer Ring Road,east-ring,A08|A13|A12,evening,19:00-21:00,weekend,1.34,37.3,0.409,1
+TP0095,Outer Ring Road,east-ring,A08|A13|A12,night,21:00-05:00,weekday,1.19,42.0,0.229,1
+TP0096,Outer Ring Road,east-ring,A08|A13|A12,night,21:00-05:00,weekend,0.8,62.5,-0.24,-1
+TP0097,Uhuru Highway,central,A01|A10|A06,early_morning,05:00-07:00,weekday,1.42,35.2,0.505,1
+TP0098,Uhuru Highway,central,A01|A10|A06,early_morning,05:00-07:00,weekend,0.9,55.6,-0.121,0
+TP0099,Uhuru Highway,central,A01|A10|A06,morning_rush,07:00-09:00,weekday,3.58,14.0,3.086,9
+TP0100,Uhuru Highway,central,A01|A10|A06,morning_rush,07:00-09:00,weekend,2.53,19.8,1.83,5
+TP0101,Uhuru Highway,central,A01|A10|A06,mid_morning,09:00-11:00,weekday,2.25,22.2,1.503,4
+TP0102,Uhuru Highway,central,A01|A10|A06,mid_morning,09:00-11:00,weekend,1.43,35.0,0.514,1
+TP0103,Uhuru Highway,central,A01|A10|A06,midday,11:00-14:00,weekday,1.88,26.6,1.056,3
+TP0104,Uhuru Highway,central,A01|A10|A06,midday,11:00-14:00,weekend,1.31,38.2,0.371,1
+TP0105,Uhuru Highway,central,A01|A10|A06,early_afternoon,14:00-16:00,weekday,2.1,23.8,1.321,4
+TP0106,Uhuru Highway,central,A01|A10|A06,early_afternoon,14:00-16:00,weekend,1.35,37.0,0.422,1
+TP0107,Uhuru Highway,central,A01|A10|A06,evening_rush,16:00-19:00,weekday,4.0,12.5,3.6,10
+TP0108,Uhuru Highway,central,A01|A10|A06,evening_rush,16:00-19:00,weekend,2.59,19.3,1.909,5
+TP0109,Uhuru Highway,central,A01|A10|A06,evening,19:00-21:00,weekday,2.19,22.8,1.432,4
+TP0110,Uhuru Highway,central,A01|A10|A06,evening,19:00-21:00,weekend,1.54,32.5,0.646,2
+TP0111,Uhuru Highway,central,A01|A10|A06,night,21:00-05:00,weekday,1.31,38.2,0.371,1
+TP0112,Uhuru Highway,central,A01|A10|A06,night,21:00-05:00,weekend,0.83,60.2,-0.203,-1
+TP0113,Langata Road,south,A05|A07|A26,early_morning,05:00-07:00,weekday,1.29,38.8,0.346,1
+TP0114,Langata Road,south,A05|A07|A26,early_morning,05:00-07:00,weekend,0.86,58.1,-0.167,0
+TP0115,Langata Road,south,A05|A07|A26,morning_rush,07:00-09:00,weekday,3.3,15.2,2.747,8
+TP0116,Langata Road,south,A05|A07|A26,morning_rush,07:00-09:00,weekend,2.3,21.7,1.565,4
+TP0117,Langata Road,south,A05|A07|A26,mid_morning,09:00-11:00,weekday,2.03,24.6,1.239,3
+TP0118,Langata Road,south,A05|A07|A26,mid_morning,09:00-11:00,weekend,1.32,37.9,0.383,1
+TP0119,Langata Road,south,A05|A07|A26,midday,11:00-14:00,weekday,1.75,28.6,0.898,2
+TP0120,Langata Road,south,A05|A07|A26,midday,11:00-14:00,weekend,1.16,43.1,0.192,1
+TP0121,Langata Road,south,A05|A07|A26,early_afternoon,14:00-16:00,weekday,1.89,26.5,1.064,3
+TP0122,Langata Road,south,A05|A07|A26,early_afternoon,14:00-16:00,weekend,1.23,40.7,0.274,1
+TP0123,Langata Road,south,A05|A07|A26,evening_rush,16:00-19:00,weekday,3.58,14.0,3.086,9
+TP0124,Langata Road,south,A05|A07|A26,evening_rush,16:00-19:00,weekend,2.41,20.7,1.699,5
+TP0125,Langata Road,south,A05|A07|A26,evening,19:00-21:00,weekday,1.99,25.1,1.19,3
+TP0126,Langata Road,south,A05|A07|A26,evening,19:00-21:00,weekend,1.36,36.8,0.43,1
+TP0127,Langata Road,south,A05|A07|A26,night,21:00-05:00,weekday,1.19,42.0,0.229,1
+TP0128,Langata Road,south,A05|A07|A26,night,21:00-05:00,weekend,0.76,65.8,-0.288,-1
+TP0129,Forest Road,north-central,A09|A18|A17,early_morning,05:00-07:00,weekday,1.21,41.3,0.253,1
+TP0130,Forest Road,north-central,A09|A18|A17,early_morning,05:00-07:00,weekend,0.83,60.2,-0.203,-1
+TP0131,Forest Road,north-central,A09|A18|A17,morning_rush,07:00-09:00,weekday,3.15,15.9,2.574,7
+TP0132,Forest Road,north-central,A09|A18|A17,morning_rush,07:00-09:00,weekend,2.21,22.6,1.455,4
+TP0133,Forest Road,north-central,A09|A18|A17,mid_morning,09:00-11:00,weekday,1.91,26.2,1.09,3
+TP0134,Forest Road,north-central,A09|A18|A17,mid_morning,09:00-11:00,weekend,1.21,41.3,0.253,1
+TP0135,Forest Road,north-central,A09|A18|A17,midday,11:00-14:00,weekday,1.7,29.4,0.841,2
+TP0136,Forest Road,north-central,A09|A18|A17,midday,11:00-14:00,weekend,1.04,48.1,0.047,0
+TP0137,Forest Road,north-central,A09|A18|A17,early_afternoon,14:00-16:00,weekday,1.87,26.7,1.047,3
+TP0138,Forest Road,north-central,A09|A18|A17,early_afternoon,14:00-16:00,weekend,1.16,43.1,0.192,1
+TP0139,Forest Road,north-central,A09|A18|A17,evening_rush,16:00-19:00,weekday,3.67,13.6,3.212,9
+TP0140,Forest Road,north-central,A09|A18|A17,evening_rush,16:00-19:00,weekend,2.22,22.5,1.467,4
+TP0141,Forest Road,north-central,A09|A18|A17,evening,19:00-21:00,weekday,1.99,25.1,1.19,3
+TP0142,Forest Road,north-central,A09|A18|A17,evening,19:00-21:00,weekend,1.3,38.5,0.358,1
+TP0143,Forest Road,north-central,A09|A18|A17,night,21:00-05:00,weekday,1.21,41.3,0.253,1
+TP0144,Forest Road,north-central,A09|A18|A17,night,21:00-05:00,weekend,0.76,65.8,-0.288,-1
+TP0145,Kiambu Road,north-west,A17|A19|A18,early_morning,05:00-07:00,weekday,1.2,41.7,0.239,1
+TP0146,Kiambu Road,north-west,A17|A19|A18,early_morning,05:00-07:00,weekend,0.76,65.8,-0.288,-1
+TP0147,Kiambu Road,north-west,A17|A19|A18,morning_rush,07:00-09:00,weekday,3.05,16.4,2.459,7
+TP0148,Kiambu Road,north-west,A17|A19|A18,morning_rush,07:00-09:00,weekend,2.02,24.8,1.219,3
+TP0149,Kiambu Road,north-west,A17|A19|A18,mid_morning,09:00-11:00,weekday,1.79,27.9,0.951,3
+TP0150,Kiambu Road,north-west,A17|A19|A18,mid_morning,09:00-11:00,weekend,1.11,45.0,0.133,0
+TP0151,Kiambu Road,north-west,A17|A19|A18,midday,11:00-14:00,weekday,1.65,30.3,0.78,2
+TP0152,Kiambu Road,north-west,A17|A19|A18,midday,11:00-14:00,weekend,1.08,46.3,0.096,0
+TP0153,Kiambu Road,north-west,A17|A19|A18,early_afternoon,14:00-16:00,weekday,1.64,30.5,0.767,2
+TP0154,Kiambu Road,north-west,A17|A19|A18,early_afternoon,14:00-16:00,weekend,1.11,45.0,0.133,0
+TP0155,Kiambu Road,north-west,A17|A19|A18,evening_rush,16:00-19:00,weekday,3.27,15.3,2.722,8
+TP0156,Kiambu Road,north-west,A17|A19|A18,evening_rush,16:00-19:00,weekend,2.25,22.2,1.503,4
+TP0157,Kiambu Road,north-west,A17|A19|A18,evening,19:00-21:00,weekday,1.86,26.9,1.03,3
+TP0158,Kiambu Road,north-west,A17|A19|A18,evening,19:00-21:00,weekend,1.25,40.0,0.3,1
+TP0159,Kiambu Road,north-west,A17|A19|A18,night,21:00-05:00,weekday,1.12,44.6,0.145,0
+TP0160,Kiambu Road,north-west,A17|A19|A18,night,21:00-05:00,weekend,0.73,68.5,-0.324,-1

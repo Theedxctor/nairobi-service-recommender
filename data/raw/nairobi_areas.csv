@@ -1,0 +1,31 @@
+area_id,area_name,lat,lng,area_type,avg_income,road_quality
+A01,CBD,-1.2833,36.8172,commercial,mixed,moderate
+A02,Westlands,-1.2636,36.8076,commercial,high,good
+A03,Kilimani,-1.2921,36.7801,residential,high,good
+A04,Karen,-1.3197,36.7107,residential,high,good
+A05,Langata,-1.3452,36.7476,residential,middle,moderate
+A06,South B,-1.3185,36.8219,residential,middle,moderate
+A07,South C,-1.3185,36.7952,residential,middle,moderate
+A08,Eastleigh,-1.2748,36.8516,commercial,mixed,poor
+A09,Parklands,-1.2662,36.8219,residential,high,good
+A10,Upper Hill,-1.2983,36.8152,commercial,high,good
+A11,Industrial Area,-1.3085,36.8516,industrial,low,poor
+A12,Embakasi,-1.3197,36.9003,residential,middle,moderate
+A13,Kasarani,-1.2228,36.8985,residential,middle,moderate
+A14,Roysambu,-1.2103,36.8719,residential,middle,moderate
+A15,Githurai,-1.1872,36.9003,residential,low,poor
+A16,Ruiru,-1.1449,36.9612,peri-urban,low,poor
+A17,Gigiri,-1.2228,36.8076,residential,high,good
+A18,Muthaiga,-1.2484,36.8352,residential,high,good
+A19,Runda,-1.2103,36.8076,residential,high,good
+A20,Lavington,-1.2811,36.7719,residential,high,good
+A21,Kileleshwa,-1.2748,36.7801,residential,high,good
+A22,Hurlingham,-1.2983,36.7952,residential,middle,good
+A23,Spring Valley,-1.2636,36.7476,residential,high,good
+A24,Dagoretti,-1.2921,36.7476,residential,low,poor
+A25,Ngong,-1.3564,36.6622,peri-urban,low,poor
+A26,Rongai,-1.3988,36.7476,peri-urban,low,poor
+A27,Syokimau,-1.3704,36.9003,peri-urban,middle,moderate
+A28,Kitengela,-1.4742,36.9612,peri-urban,low,poor
+A29,Kikuyu,-1.2484,36.6622,peri-urban,low,poor
+A30,Athi River,-1.4551,36.9936,peri-urban,low,poor

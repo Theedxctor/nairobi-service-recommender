@@ -1,0 +1,22 @@
+feature,type,source,description
+distance_km,numeric,calculated,Haversine distance between provider and client in kilometres
+congestion_multiplier,numeric,traffic_patterns.csv,"How much longer travel takes vs free flow (1.0=clear, 3.5=gridlock)"
+congestion_level_0_10,ordinal,derived,Congestion normalised to 0-10 scale for interpretability
+avg_speed_kmh,numeric,derived,Estimated average travel speed given congestion
+estimated_travel_min,numeric,calculated,Predicted travel time in minutes accounting for congestion
+time_slot,categorical,booking,"Time period of booking: morning_rush, evening_rush, midday, etc."
+booking_hour,numeric,booking,Hour of day the booking is for (0-23)
+day_type,categorical,booking,weekday or weekend — affects congestion significantly
+day_of_week,categorical,booking,Full day name — Monday is worst for CBD routes
+provider_rating,numeric,providers,Provider's aggregate rating (1.0-5.0)
+provider_completion_rate,numeric,providers,Fraction of accepted jobs completed successfully (0-1)
+provider_experience_years,numeric,providers,Years of active experience — proxy for reliability
+provider_avg_response_min,numeric,providers,How quickly provider typically accepts/responds to bookings
+provider_total_jobs,numeric,providers,Total completed jobs — volume signal for established providers
+provider_is_verified,binary,providers,Whether provider passed identity and skills verification
+provider_hourly_rate_ksh,numeric,providers,Provider's hourly rate in Kenyan Shillings
+provider_area_road_quality,categorical,areas,Road quality in provider's base area: good/moderate/poor
+client_area_road_quality,categorical,areas,Road quality in client's area: good/moderate/poor
+primary_corridor,categorical,traffic,Main Nairobi road corridor on likely route
+service_type,categorical,booking,Type of service requested
+arrival_reliability_score,target (0-1),derived,TARGET: composite score predicting provider will arrive on time and complete job. Higher = more reliable.
