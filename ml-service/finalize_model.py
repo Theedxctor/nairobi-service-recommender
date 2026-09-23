@@ -15,8 +15,8 @@ from xgboost import XGBRegressor
 import numpy as np
 
 TARGET = "arrival_reliability_score"
-DATA_PATH = "historical_bookings.csv"
-MODEL_OUT = "xgboost_arrival_reliability_pipeline.pkl"
+DATA_PATH = "../data/raw/historical_bookings.csv"
+MODEL_OUT = "models/xgboost_arrival_reliability_pipeline.pkl"
 
 FEATURES = [
     "distance_km",
