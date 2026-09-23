@@ -1,0 +1,5 @@
+import { Field, PageIntro } from "../ui";
+
+export default function LoginPage() {
+  return <main className="mx-auto max-w-6xl px-5 py-14"><div className="mx-auto max-w-md"><PageIntro eyebrow="Welcome back" title="Good to see you." copy="Log in to manage your bookings or respond to new client requests." /><form className="panel grid gap-5 p-6"><Field label="Email address"><input className="field" type="email" placeholder="you@example.com" /></Field><Field label="Password"><input className="field" type="password" placeholder="Your password" /></Field><div className="flex items-center justify-between text-sm"><label className="flex gap-2"><input type="checkbox" /> Remember me</label><a href="#" className="font-bold text-[#176b4d]">Forgot password?</a></div><button className="btn-primary">Log in</button><div className="border-t pt-5 text-center text-sm" style={{ borderColor: "var(--line)", color: "var(--muted)" }}>New to mtaa? <a href="/register" className="font-bold text-[#176b4d]">Create a client account</a><br /><a href="/provider/register" className="mt-2 inline-block font-bold text-[#176b4d]">Register as a provider →</a></div></form></div></main>;
+}
