@@ -9,14 +9,70 @@ Corridor + congestion are looked up via traffic_patterns.served_areas
 from raw lat/lng.
 """
 import math
+import os
 import pandas as pd
 
 
 from datetime import datetime
 from pathlib import Path
 
+# Query column order matches the CSV-based columns build_feature_row()/api.py
+# already expect, so callers don't need to know which source is in use.
+_AREAS_SQL = """
+    SELECT area_id, area_name, ST_Y(geom) AS lat, ST_X(geom) AS lng,
+           area_type, avg_income, road_quality
+    FROM nairobi_areas;
+"""
+_PROVIDERS_SQL = """
+    SELECT sp.provider_id, sp.name, sp.service_type, na.area_name AS base_area_name,
+           sp.rating, sp.completion_rate, sp.experience_years, sp.avg_response_min,
+           sp.total_jobs, sp.is_verified, sp.hourly_rate_ksh
+    FROM service_providers sp
+    JOIN nairobi_areas na ON sp.base_area_id = na.area_id;
+"""
+# joining through corridor_areas gives one row per (traffic pattern, served area),
+# i.e. the same shape the CSV path produces by exploding served_areas.
+_TRAFFIC_SQL = """
+    SELECT ca.area_id, tp.traffic_pattern_id, tp.corridor_name, tp.direction,
+           tp.time_slot, tp.day_type, tp.congestion_multiplier, tp.avg_speed_kmh,
+           tp.congestion_level
+    FROM traffic_patterns tp
+    JOIN corridor_areas ca ON ca.traffic_pattern_id = tp.traffic_pattern_id;
+"""
+# cast TIME columns to "HH:MM" strings to match is_provider_available()'s parsing
+_AVAILABILITY_SQL = """
+    SELECT provider_id, day_of_week, to_char(start_time, 'HH24:MI') AS start_time,
+           to_char(end_time, 'HH24:MI') AS end_time
+    FROM provider_availability;
+"""
 
-def load_reference_data(data_dir=None):
+
+def _get_db_connection():
+    """Connects using the same DB_* env vars as database/migrate_csv_to_postgres.py."""
+    import psycopg2
+
+    return psycopg2.connect(
+        host=os.environ.get("DB_HOST", "localhost"),
+        port=int(os.environ.get("DB_PORT", 5432)),
+        dbname=os.environ.get("DB_NAME", "nairobi_recommender"),
+        user=os.environ.get("DB_USER", "postgres"),
+        password=os.environ.get("DB_PASSWORD", ""),
+    )
+
+
+def _load_reference_data_from_postgres():
+    conn = _get_db_connection()
+    try:
+        areas = pd.read_sql(_AREAS_SQL, conn)
+        providers = pd.read_sql(_PROVIDERS_SQL, conn)
+        traffic = pd.read_sql(_TRAFFIC_SQL, conn)
+        availability = pd.read_sql(_AVAILABILITY_SQL, conn)
+    finally:
+        conn.close()
+    return {"areas": areas, "traffic": traffic, "providers": providers, "availability": availability}
+
+
+def _load_reference_data_from_csv(data_dir=None):
     if data_dir is None:
         base = Path(__file__).resolve().parent
         candidates = [base.parent / "data" / "raw", base / "data" / "raw", Path("data/raw"), Path("../data/raw"), Path(".")]
@@ -36,6 +92,23 @@ def load_reference_data(data_dir=None):
     traffic = traffic.assign(area_id=traffic["served_areas"].str.split("|")).explode("area_id")
 
     return {"areas": areas, "traffic": traffic, "providers": providers, "availability": availability}
+
+
+def load_reference_data(data_dir=None):
+    """
+    Loads reference data (areas, providers, traffic, availability) from
+    PostgreSQL/PostGIS (see database/schema.sql), using DB_HOST/DB_PORT/DB_NAME/
+    DB_USER/DB_PASSWORD env vars. Falls back to the data/raw/*.csv files if no
+    database is reachable, so local dev/tests still work without Docker.
+    """
+    if data_dir is not None:
+        return _load_reference_data_from_csv(data_dir)
+
+    try:
+        return _load_reference_data_from_postgres()
+    except Exception as e:
+        print(f"[load_reference_data] Postgres unavailable ({e}), falling back to CSV files.")
+        return _load_reference_data_from_csv(data_dir)
 
 
 def haversine_km(lat1, lon1, lat2, lon2):
