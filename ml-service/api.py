@@ -10,18 +10,33 @@ Endpoints:
 Run with:  uvicorn api:app --reload --port 8000
 Docs at:   http://localhost:8000/docs
 """
+from pathlib import Path
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from typing import Optional
 import joblib
 import pandas as pd
 
-from feature_engineering import load_reference_data, build_feature_row, MODEL_FEATURES
+from feature_engineering import load_reference_data, build_feature_row, MODEL_FEATURES, is_provider_available
 
 app = FastAPI(title="Nairobi Context-Aware Provider Reliability API", version="1.0")
 
-pipeline = joblib.load("xgboost_arrival_reliability_pipeline.pkl")
-ref = load_reference_data(data_dir=".")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+BASE_DIR = Path(__file__).resolve().parent
+MODEL_PATH = BASE_DIR / "models" / "xgboost_arrival_reliability_pipeline.pkl"
+if not MODEL_PATH.exists():
+    MODEL_PATH = BASE_DIR / "xgboost_arrival_reliability_pipeline.pkl"
+
+pipeline = joblib.load(MODEL_PATH)
+ref = load_reference_data()
 
 
 # ---------------------------------------------------------------------------
@@ -92,7 +107,42 @@ def _explain(features, provider_row):
 # ---------------------------------------------------------------------------
 @app.get("/health")
 def health():
-    return {"status": "ok", "providers_loaded": len(ref["providers"])}
+    return {
+        "status": "ok",
+        "providers_loaded": len(ref["providers"]) if "providers" in ref else 0,
+        "areas_loaded": len(ref["areas"]) if "areas" in ref else 0,
+        "availability_loaded": len(ref["availability"]) if "availability" in ref else 0,
+    }
+
+
+@app.get("/areas", response_model=list[str])
+def get_areas():
+    if "areas" in ref and "area_name" in ref["areas"].columns:
+        return sorted(ref["areas"]["area_name"].dropna().unique().tolist())
+    return []
+
+
+@app.get("/service_types", response_model=list[str])
+def get_service_types():
+    if "providers" in ref and "service_type" in ref["providers"].columns:
+        return sorted(ref["providers"]["service_type"].dropna().unique().tolist())
+    return []
+
+
+@app.get("/time_slots", response_model=list[str])
+def get_time_slots():
+    return [
+        "morning_rush",
+        "midday",
+        "evening_rush",
+        "night",
+        "weekend_day",
+    ]
+
+
+@app.get("/day_types", response_model=list[str])
+def get_day_types():
+    return ["weekday", "weekend"]
 
 
 @app.post("/predict", response_model=PredictResponse)
@@ -109,9 +159,9 @@ def predict(req: PredictRequest):
 
     return PredictResponse(
         provider_id=req.provider_id,
-        reliability_score=round(score, 4),
-        estimated_travel_min=features["estimated_travel_min"],
-        distance_km=features["distance_km"],
+        reliability_score=round(max(0.0, min(1.0, float(score))), 4),
+        estimated_travel_min=round(max(4.0, float(features["estimated_travel_min"])), 1),
+        distance_km=round(max(0.8, float(features["distance_km"])), 2),
         primary_corridor=features["primary_corridor"],
         explanation=_explain(features, provider_row),
     )
@@ -119,22 +169,43 @@ def predict(req: PredictRequest):
 
 @app.post("/recommend", response_model=list[RankedProvider])
 def recommend(req: RecommendRequest):
-    candidates = ref["providers"].loc[ref["providers"].service_type == req.service_type]
+    service_target = req.service_type.strip().lower()
+    candidates = ref["providers"].loc[
+        ref["providers"].service_type.astype(str).str.strip().str.lower() == service_target
+    ]
+    if candidates.empty:
+        candidates = ref["providers"].loc[
+            ref["providers"].service_type.astype(str).str.strip().str.lower().str.contains(service_target)
+        ]
     if candidates.empty:
         raise HTTPException(404, f"No providers found for service_type: {req.service_type}")
 
+    # Filter to available providers before scoring
+    availability_df = ref.get("availability")
+    available_mask = candidates["provider_id"].apply(
+        lambda pid: is_provider_available(pid, req.day_type, req.time_slot, availability_df)
+    )
+    available_candidates = candidates.loc[available_mask]
+
+    if available_candidates.empty:
+        raise HTTPException(
+            404,
+            f"Providers exist for service_type '{req.service_type}', but none are available for day_type '{req.day_type}' and time_slot '{req.time_slot}'."
+        )
+
     ranked = []
-    for _, provider_row in candidates.iterrows():
+    for _, provider_row in available_candidates.iterrows():
         try:
             score, features = _score_provider(req.client_area, provider_row, req.time_slot, req.day_type)
-        except ValueError:
+        except ValueError as e:
+            print(f"[recommend] Skipping provider_id={provider_row['provider_id']}: {e}")
             continue
         ranked.append(RankedProvider(
-            provider_id=provider_row["provider_id"],
-            name=provider_row["name"],
-            reliability_score=round(score, 4),
-            estimated_travel_min=features["estimated_travel_min"],
-            distance_km=features["distance_km"],
+            provider_id=str(provider_row["provider_id"]),
+            name=str(provider_row["name"]),
+            reliability_score=round(max(0.0, min(1.0, float(score))), 4),
+            estimated_travel_min=round(max(4.0, float(features["estimated_travel_min"])), 1),
+            distance_km=round(max(0.8, float(features["distance_km"])), 2),
             hourly_rate_ksh=int(provider_row["hourly_rate_ksh"]),
             rating=float(provider_row["rating"]),
             explanation=_explain(features, provider_row),
