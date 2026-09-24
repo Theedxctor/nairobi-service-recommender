@@ -3,36 +3,11 @@
 @tailwind utilities;
 
 :root {
-  --ink: #17211d;
-  --muted: #6f7b73;
-  --paper: #f5f4ef;
-  --surface: #fffdf8;
-  --line: #e3e4da;
-  --green: #176b4d;
-  --green-dark: #104936;
-  --lime: #c9dc75;
-  --coral: #e87552;
+  --foreground-rgb: 15, 23, 42;
+  --background-rgb: 248, 250, 252;
 }
-
-* { box-sizing: border-box; }
 
 body {
-  color: var(--ink);
-  background: var(--paper);
-  font-family: Georgia, 'Times New Roman', serif;
-}
-
-button, input, select, textarea { font: inherit; }
-
-@layer components {
-  .eyebrow { @apply text-[11px] font-bold uppercase tracking-[0.18em]; color: var(--green); }
-  .label { @apply mb-2 block text-xs font-bold uppercase tracking-[0.1em]; color: var(--muted); }
-  .field { @apply w-full border px-4 py-3 text-sm outline-none transition; border-color: var(--line); background: var(--surface); border-radius: 2px; }
-  .field:focus { border-color: var(--green); box-shadow: 0 0 0 3px rgba(23,107,77,.12); }
-  .btn-primary { @apply inline-flex items-center justify-center gap-2 px-5 py-3 text-sm font-bold transition; color: white; background: var(--green); border-radius: 2px; }
-  .btn-primary:hover { background: var(--green-dark); }
-  .btn-secondary { @apply inline-flex items-center justify-center gap-2 border px-5 py-3 text-sm font-bold transition; color: var(--ink); border-color: var(--line); background: var(--surface); border-radius: 2px; }
-  .btn-secondary:hover { border-color: var(--green); color: var(--green); }
-  .panel { border: 1px solid var(--line); background: var(--surface); }
-  .stat { @apply border p-5; border-color: var(--line); background: var(--surface); }
+  color: rgb(var(--foreground-rgb));
+  background-color: rgb(var(--background-rgb));
 }

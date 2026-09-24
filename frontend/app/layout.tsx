@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Mtaa | Reliable help, close to home",
-  description: "Find trusted household service providers across Nairobi.",
+  title: "Nairobi Household Service Provider Recommender",
+  description: "Context-Aware Service Provider Reliability & Recommendation System",
 };
 
 export default function RootLayout({
@@ -13,20 +13,28 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="min-h-screen antialiased">
-        <header className="sticky top-0 z-20 border-b bg-[#fffdf8]/95 backdrop-blur" style={{ borderColor: "var(--line)" }}>
-          <div className="mx-auto flex max-w-6xl items-center justify-between px-5 py-4">
-            <a href="/" className="text-2xl font-bold tracking-tight" style={{ color: "var(--green)" }}>mtaa<span style={{ color: "var(--ink)" }}>.</span></a>
-            <nav className="hidden items-center gap-7 text-sm font-bold md:flex" style={{ color: "var(--muted)" }}>
-              <a href="/request" className="hover:text-[#176b4d]">Find a provider</a>
-              <a href="/dashboard" className="hover:text-[#176b4d]">My bookings</a>
-              <a href="/provider/dashboard" className="hover:text-[#176b4d]">For providers</a>
+      <body className="min-h-screen antialiased bg-slate-50 text-slate-900">
+        <header className="border-b border-slate-200 bg-white sticky top-0 z-10 shadow-sm">
+          <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="text-xl font-bold tracking-tight text-indigo-600">
+                Nairobi<span className="text-slate-800">Services</span>
+              </span>
+              <span className="text-xs bg-indigo-50 text-indigo-700 font-medium px-2 py-0.5 rounded border border-indigo-100">
+                Context-Aware AI
+              </span>
+            </div>
+            <nav className="flex items-center gap-4 text-sm font-medium text-slate-600">
+              <a href="/request" className="hover:text-indigo-600 transition-colors">
+                Request Service
+              </a>
+              <a href="/results" className="hover:text-indigo-600 transition-colors">
+                Recommendations
+              </a>
             </nav>
-            <div className="flex items-center gap-2"><a href="/login" className="hidden px-3 py-2 text-sm font-bold md:block">Log in</a><a href="/register" className="btn-primary px-4 py-2">Get started</a></div>
           </div>
         </header>
-        <main>{children}</main>
-        <footer className="border-t px-5 py-8" style={{ borderColor: "var(--line)" }}><div className="mx-auto flex max-w-6xl flex-col justify-between gap-3 text-sm md:flex-row" style={{ color: "var(--muted)" }}><span className="font-bold" style={{ color: "var(--green)" }}>mtaa.</span><span>Reliable help, close to home. Nairobi, Kenya.</span></div></footer>
+        <main className="max-w-5xl mx-auto px-4 py-8">{children}</main>
       </body>
     </html>
   );
