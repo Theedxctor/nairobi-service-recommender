@@ -151,15 +151,19 @@ def migrate_service_providers(conn, data_dir, dry_run=False):
         INSERT INTO service_providers (
             provider_id, name, base_area_id, service_type, rating,
             completion_rate, experience_years, avg_response_min,
-            total_jobs, is_verified, hourly_rate_ksh
+            total_jobs, is_verified, hourly_rate_ksh, phone
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        ON CONFLICT (provider_id) DO NOTHING;
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (provider_id) DO UPDATE SET phone = EXCLUDED.phone;
     """
 
     cursor = conn.cursor()
     inserted = 0
     for _, row in df.iterrows():
+        phone_val = (
+            str(int(row["phone"])) if pd.notna(row["phone"]) and isinstance(row["phone"], (int, float))
+            else str(row["phone"]) if pd.notna(row["phone"]) else None
+        )
         cursor.execute(
             insert_sql,
             (
@@ -174,6 +178,7 @@ def migrate_service_providers(conn, data_dir, dry_run=False):
                 int(row["total_jobs_completed"]) if pd.notna(row["total_jobs_completed"]) else None,
                 str(row["is_verified"]).strip().lower() == "true",
                 int(row["hourly_rate_ksh"]) if pd.notna(row["hourly_rate_ksh"]) else None,
+                phone_val,
             ),
         )
         inserted += 1
