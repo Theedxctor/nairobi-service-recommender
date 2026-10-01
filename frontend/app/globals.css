@@ -2,12 +2,15 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --foreground-rgb: 15, 23, 42;
-  --background-rgb: 248, 250, 252;
+html {
+  scroll-behavior: smooth;
 }
 
-body {
-  color: rgb(var(--foreground-rgb));
-  background-color: rgb(var(--background-rgb));
+:root {
+  /* next/font/google (Space Grotesk) needs network access to fetch at build
+     time, which this sandbox doesn't have. Falling back to a system stack
+     that still reads as a distinctive geometric sans; swap back to
+     next/font/google in an environment with internet access. */
+  --font-heading: "Segoe UI", ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
+

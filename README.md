@@ -44,6 +44,22 @@ uvicorn api:app --reload --port 8000
 
 Docs at `http://localhost:8000/docs`.
 
+## First admin account
+
+There's no admin registration form (`/auth/register` only creates `client`
+or `provider` accounts). After a fresh database setup, create the first
+admin with the seed script instead of hand-inserting a row:
+
+```bash
+export ADMIN_EMAIL=admin@example.com
+export ADMIN_PASSWORD=some-strong-password
+export DB_HOST=localhost DB_PORT=5433 DB_NAME=nairobi_recommender DB_USER=postgres DB_PASSWORD=devpassword
+ml-service/.venv/bin/python3 database/seed_admin.py
+```
+
+It's safe to re-run — if `ADMIN_EMAIL` already has an account, it prints
+"Admin already exists" and makes no changes.
+
 ## Model performance (current)
 
 | Model | RMSE | MAE |

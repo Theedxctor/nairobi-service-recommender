@@ -88,7 +88,7 @@ export default function ResultsPage() {
   }, [sortBy]);
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-3xl mx-auto space-y-6 px-4 py-8">
       {/* 3-Step Progress Indicator */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
         <div className="flex items-center justify-between relative">

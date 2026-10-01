@@ -1,8 +1,10 @@
 "use client";
 
 import React, { useState } from "react";
+import { useAuthGuard } from "../../use-auth-guard";
 
 export default function RequestPage() {
+  const { checked } = useAuthGuard(["client"]);
   const [serviceType, setServiceType] = useState("Plumber");
   const [clientArea, setClientArea] = useState("Kilimani");
   const [dayType, setDayType] = useState("Weekday");
@@ -19,8 +21,10 @@ export default function RequestPage() {
     });
   };
 
+  if (!checked) return null;
+
   return (
-    <div className="max-w-2xl mx-auto space-y-8">
+    <div className="max-w-2xl mx-auto space-y-8 px-4 py-8">
       {/* 3-Step Progress Indicator */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
         <div className="flex items-center justify-between relative">

@@ -10,11 +10,21 @@ from raw lat/lng.
 """
 import math
 import os
+import bcrypt
 import pandas as pd
 
 
 from datetime import datetime
 from pathlib import Path
+
+
+def _hash_password(password):
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+
+def _verify_password(password, password_hash):
+    return bcrypt.checkpw(password.encode("utf-8"), password_hash.encode("utf-8"))
+
 
 # Query column order matches the CSV-based columns build_feature_row()/api.py
 # already expect, so callers don't need to know which source is in use.
