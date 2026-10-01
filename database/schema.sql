@@ -9,7 +9,12 @@
 -- update this file to match and regenerate the PNG/SVG exports.
 -- ---------------------------------------------------------------------------
 
--- Enable PostGIS spatial extension
+-- Enable PostGIS spatial extension.
+-- Requires PostGIS >= 3.0 (this project is developed/tested against 3.4,
+-- bundled with the postgis/postgis:16-3.4 Docker image) for the GEOMETRY
+-- column type and GIST indexing used below. After running this file, verify
+-- the installed version with:
+--   SELECT PostGIS_Version();
 CREATE EXTENSION IF NOT EXISTS postgis;
 
 -- ---------------------------------------------------------------------------
