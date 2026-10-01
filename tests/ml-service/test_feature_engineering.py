@@ -89,6 +89,16 @@ def test_build_feature_row_floors_distance_at_0_8_km_for_same_area_trips(areas_d
     assert row["distance_km"] == 0.8
 
 
+def test_build_feature_row_falls_back_to_first_area_for_completely_unknown_client_area(provider_row, ref):
+    # "Mars" matches neither an exact area_name nor a substring of one, so
+    # lookup_area() falls back to the first row in areas_df (CBD) instead of
+    # raising -- this keeps /recommend resilient to a typo'd client_area.
+    row = build_feature_row("Mars", provider_row, "morning_rush", "weekday", ref)
+
+    assert row["client_area_road_quality"] == "moderate"  # CBD's road_quality in the fixture
+
+
+
 def test_haversine_km_matches_expected_distance():
     assert haversine_km(-1.2833, 36.8172, -1.2921, 36.7801) == pytest.approx(4.24, abs=0.01)
     assert haversine_km(-1.0, 36.0, -1.0, 36.0) == 0.0
