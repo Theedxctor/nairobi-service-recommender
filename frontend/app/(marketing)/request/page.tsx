@@ -118,13 +118,13 @@ export default function RequestPage() {
           </div>
 
           {/* Preferred Day */}
-          <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">
+          <fieldset>
+            <legend className="block text-sm font-medium text-slate-700 mb-2">
               Preferred Day
-            </label>
+            </legend>
             <div className="grid grid-cols-2 gap-4">
               <label
-                className={`flex items-center justify-center p-3 rounded-lg border cursor-pointer text-sm font-medium transition-colors ${
+                className={`relative flex items-center justify-center p-3 rounded-lg border cursor-pointer text-sm font-medium transition-colors ${
                   dayType === "Weekday"
                     ? "border-indigo-600 bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600"
                     : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
@@ -136,13 +136,15 @@ export default function RequestPage() {
                   value="Weekday"
                   checked={dayType === "Weekday"}
                   onChange={() => setDayType("Weekday")}
-                  className="sr-only"
+                  className="peer sr-only"
                 />
-                <span>Weekday (Mon - Fri)</span>
+                <span className="peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-indigo-600 rounded">
+                  Weekday (Mon - Fri)
+                </span>
               </label>
 
               <label
-                className={`flex items-center justify-center p-3 rounded-lg border cursor-pointer text-sm font-medium transition-colors ${
+                className={`relative flex items-center justify-center p-3 rounded-lg border cursor-pointer text-sm font-medium transition-colors ${
                   dayType === "Weekend"
                     ? "border-indigo-600 bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600"
                     : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
@@ -154,12 +156,15 @@ export default function RequestPage() {
                   value="Weekend"
                   checked={dayType === "Weekend"}
                   onChange={() => setDayType("Weekend")}
-                  className="sr-only"
+                  className="peer sr-only"
                 />
-                <span>Weekend (Sat - Sun)</span>
+                <span className="peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-indigo-600 rounded">
+                  Weekend (Sat - Sun)
+                </span>
               </label>
             </div>
-          </div>
+          </fieldset>
+
 
           {/* Preferred Time Slot */}
           <div>
