@@ -1,3 +1,7 @@
+# Pinning policy: every dependency is pinned to an exact version (==) rather
+# than a floor (>=) or range, so `pip install -r requirements.txt` reproduces
+# the same environment on any machine/CI run. When bumping a version, test
+# locally and update the single line here -- don't switch to ranges.
 fastapi==0.115.0
 uvicorn==0.30.6
 xgboost==2.1.1
