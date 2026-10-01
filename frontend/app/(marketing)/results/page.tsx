@@ -156,7 +156,7 @@ export default function ResultsPage() {
       </div>
 
       {/* Provider Cards List */}
-      <div className="space-y-4">
+      <div className="space-y-4" aria-live="polite">
         {sortedProviders.map((provider, index) => {
           const scorePercent = Math.round(provider.reliability_score * 100);
 
@@ -259,7 +259,14 @@ export default function ResultsPage() {
                     </span>
                   </div>
                   {/* Progress bar */}
-                  <div className="w-full bg-slate-100 rounded-full h-2 overflow-hidden">
+                  <div
+                    className="w-full bg-slate-100 rounded-full h-2 overflow-hidden"
+                    role="progressbar"
+                    aria-valuenow={scorePercent}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-label={`Reliability score for ${provider.name}`}
+                  >
                     <div
                       className={`h-2 rounded-full transition-all duration-500 ${
                         scorePercent >= 85
