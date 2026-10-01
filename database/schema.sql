@@ -1,3 +1,14 @@
+-- ---------------------------------------------------------------------------
+-- This schema is the direct SQL translation of the project's Entity
+-- Relationship Diagram -- see docs/diagrams/ERD.svg (and the equivalent
+-- "Entity Relationship Diagram.png" / "Database Schema.png" exports) for the
+-- visual source of truth. Table order below follows the ERD's dependency
+-- order: reference tables first (nairobi_areas, traffic_patterns), then
+-- entities that reference them (clients, service_providers), then join /
+-- transactional tables (bookings, notifications, etc). When the ERD changes,
+-- update this file to match and regenerate the PNG/SVG exports.
+-- ---------------------------------------------------------------------------
+
 -- Enable PostGIS spatial extension
 CREATE EXTENSION IF NOT EXISTS postgis;
 
