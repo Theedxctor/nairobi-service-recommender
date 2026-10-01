@@ -1,0 +1,40 @@
+# Frontend — Nairobi Service Recommender
+
+Next.js 14 (App Router) + TypeScript + Tailwind CSS client for the service
+recommender. Talks to the FastAPI backend in `../ml-service/`.
+
+## Requirements
+- Node.js 18+
+- The backend running locally (see `../LOCAL_SETUP.md`) if you want real data
+  instead of the mocked `/request` and `/results` flows.
+
+## Getting started
+```bash
+cd frontend
+npm install
+npm run dev
+```
+Runs on [http://localhost:3000](http://localhost:3000) (falls back to 3001 if
+3000 is taken).
+
+## Scripts
+| Command | Purpose |
+|---|---|
+| `npm run dev` | Start the dev server with hot reload |
+| `npm run build` | Production build (`next build`) |
+| `npm run start` | Serve the production build |
+| `npm run lint` | Run `next lint` |
+
+## Structure
+- `app/(marketing)/` — public landing page, `/request`, `/results` (shared
+  Navbar/Footer layout)
+- `app/(app)/` — authenticated sidebar shell: `/dashboard`, `/profile`,
+  `/notifications`, `/provider/*`, `/admin/*` (role-gated via
+  `use-auth-guard.ts`)
+- `app/login/`, `app/register/` — top-level, no shared chrome
+- `app/globals.css`, `tailwind.config.ts` — teal/stone design system
+
+## Environment
+The backend base URL is currently hardcoded to `http://localhost:8000` in the
+pages that call it. If you need to point at a different backend, search for
+that string under `app/`.
