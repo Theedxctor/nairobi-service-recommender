@@ -1,7 +1,7 @@
 import pandas as pd
 import pytest
 
-from feature_engineering import build_feature_row, haversine_km
+from feature_engineering import build_feature_row, haversine_km, is_provider_available
 
 
 @pytest.fixture
@@ -96,6 +96,44 @@ def test_build_feature_row_falls_back_to_first_area_for_completely_unknown_clien
     row = build_feature_row("Mars", provider_row, "morning_rush", "weekday", ref)
 
     assert row["client_area_road_quality"] == "moderate"  # CBD's road_quality in the fixture
+
+
+@pytest.fixture
+def availability_df():
+    return pd.DataFrame(
+        [
+            {
+                "provider_id": "P0001",
+                "day_of_week": "monday",
+                "start_time": "08:00",
+                "end_time": "12:00",
+                "is_available": "true",
+            },
+            {
+                "provider_id": "P0002",
+                "day_of_week": "monday",
+                "start_time": "08:00",
+                "end_time": "12:00",
+                "is_available": "false",
+            },
+        ]
+    )
+
+
+def test_is_provider_available_returns_false_when_no_record_for_provider(availability_df):
+    # P9999 has no row at all in availability_df -- the documented default is
+    # to exclude unscheduled providers, not assume they're available.
+    assert is_provider_available("P9999", "weekday", "morning_rush", availability_df) is False
+
+
+def test_is_provider_available_returns_false_when_marked_unavailable(availability_df):
+    # P0002 has a record for the requested slot, but is_available is "false".
+    assert is_provider_available("P0002", "monday", "morning_rush", availability_df) is False
+
+
+def test_is_provider_available_returns_false_for_empty_dataframe():
+    empty_df = pd.DataFrame(columns=["provider_id", "day_of_week", "start_time", "end_time", "is_available"])
+    assert is_provider_available("P0001", "weekday", "morning_rush", empty_df) is False
 
 
 
