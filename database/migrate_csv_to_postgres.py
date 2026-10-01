@@ -49,6 +49,31 @@ def find_data_dir():
     raise FileNotFoundError("Could not locate data/raw/ directory.")
 
 
+REQUIRED_CSV_FILES = [
+    "nairobi_areas.csv",
+    "clients.csv",
+    "service_providers.csv",
+    "traffic_patterns.csv",
+    "provider_availability.csv",
+    "historical_bookings.csv",
+]
+
+
+def verify_required_files(data_dir):
+    """
+    Checks that every CSV the migration tasks depend on is present before any
+    inserts run. Without this, a missing file (e.g. corridor_areas being
+    derived in-memory rather than read from disk) would only surface as a
+    FileNotFoundError partway through the pipeline, after earlier tables had
+    already been committed -- leaving the database in a half-migrated state.
+    """
+    missing = [name for name in REQUIRED_CSV_FILES if not (data_dir / name).exists()]
+    if missing:
+        raise FileNotFoundError(
+            f"Missing required CSV file(s) in {data_dir}: {', '.join(missing)}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Migration functions for each table in dependency order
 # ---------------------------------------------------------------------------
@@ -412,6 +437,12 @@ def main():
 
     data_dir = find_data_dir()
     print(f"Found CSV data directory at: {data_dir}")
+
+    try:
+        verify_required_files(data_dir)
+    except FileNotFoundError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
 
     conn = None
     if not args.dry_run:
