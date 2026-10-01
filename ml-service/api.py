@@ -4,12 +4,19 @@ FastAPI service around your tuned XGBoost pipeline.
 
 Endpoints:
   GET  /health
-  POST /predict     -> reliability score for ONE client-provider-time combo
-  POST /recommend    -> ranked list of ALL matching providers for a booking request
+  POST /predict            -> reliability score for ONE client-provider-time combo
+  POST /recommend          -> ranked list of ALL matching providers for a booking request
+  POST /auth/register      -> create a client or provider account
+  POST /auth/login         -> verify credentials, return user_id/role/client_id or provider_id
+  GET  /profile            -> role-appropriate profile fields for a user_id
+  GET  /notifications      -> a user's notifications, newest first
+  PATCH /notifications/{id}/read -> marks one notification as read
 
 Run with:  uvicorn api:app --reload --port 8000
 Docs at:   http://localhost:8000/docs
 """
+import re
+from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,8 +24,19 @@ from pydantic import BaseModel, Field
 from typing import Optional
 import joblib
 import pandas as pd
+import psycopg2
 
-from feature_engineering import load_reference_data, build_feature_row, MODEL_FEATURES, is_provider_available
+from feature_engineering import (
+    load_reference_data,
+    build_feature_row,
+    MODEL_FEATURES,
+    is_provider_available,
+    _get_db_connection,
+    _hash_password,
+    _verify_password,
+)
+
+EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 app = FastAPI(title="Nairobi Context-Aware Provider Reliability API", version="1.0")
 
@@ -75,6 +93,228 @@ class RankedProvider(BaseModel):
     hourly_rate_ksh: int
     rating: float
     explanation: str
+
+
+class RegisterRequest(BaseModel):
+    email: str
+    password: str
+    role: str = Field(..., examples=["client", "provider"])
+    name: str
+    phone: str
+    area_id: Optional[str] = None  # required when role == "client"
+    base_area_id: Optional[str] = None  # required when role == "provider"
+    service_type: Optional[str] = None  # required when role == "provider"
+    hourly_rate_ksh: Optional[int] = None  # required when role == "provider"
+
+
+class RegisterResponse(BaseModel):
+    user_id: str
+    role: str
+
+
+class LoginRequest(BaseModel):
+    email: str
+    password: str
+
+
+class LoginResponse(BaseModel):
+    user_id: str
+    role: str
+    name: Optional[str] = None
+    client_id: Optional[str] = None
+    provider_id: Optional[str] = None
+
+
+class ProfileResponse(BaseModel):
+    user_id: str
+    role: str
+    name: Optional[str] = None
+    email: str
+    phone: Optional[str] = None
+    area_name: Optional[str] = None  # client only
+    base_area_name: Optional[str] = None  # provider only
+    service_type: Optional[str] = None  # provider only
+    hourly_rate_ksh: Optional[int] = None  # provider only
+    rating: Optional[float] = None  # provider only
+    completion_rate: Optional[float] = None  # provider only
+    experience_years: Optional[float] = None  # provider only
+    is_verified: Optional[bool] = None  # provider only
+    member_since: Optional[datetime] = None
+
+
+class NotificationResponse(BaseModel):
+    notification_id: int
+    user_id: str
+    message: str
+    is_read: bool
+    created_at: datetime
+
+
+# ---------------------------------------------------------------------------
+# Auth helpers (users / clients / service_providers tables)
+# ---------------------------------------------------------------------------
+def _next_id(cursor, table, id_column, prefix):
+    cursor.execute(f"SELECT {id_column} FROM {table} ORDER BY {id_column} DESC LIMIT 1")
+    row = cursor.fetchone()
+    last_num = int(row[0][len(prefix):]) if row and row[0] else 0
+    return f"{prefix}{last_num + 1:04d}"
+
+
+def _email_exists(cursor, email):
+    cursor.execute("SELECT 1 FROM users WHERE email = %s", (email,))
+    return cursor.fetchone() is not None
+
+
+def _fetch_user_by_email(cursor, email):
+    cursor.execute(
+        """
+        SELECT u.user_id, u.password_hash, u.role, u.client_id, u.provider_id,
+               COALESCE(c.name, sp.name) AS name
+        FROM users u
+        LEFT JOIN clients c ON u.client_id = c.client_id
+        LEFT JOIN service_providers sp ON u.provider_id = sp.provider_id
+        WHERE u.email = %s
+        """,
+        (email,),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    return {
+        "user_id": row[0],
+        "password_hash": row[1],
+        "role": row[2],
+        "client_id": row[3],
+        "provider_id": row[4],
+        "name": row[5],
+    }
+
+
+def _insert_client(cursor, client_id, name, area_id, phone, email):
+    cursor.execute(
+        "INSERT INTO clients (client_id, name, area_id, phone, email) VALUES (%s, %s, %s, %s, %s)",
+        (client_id, name, area_id, phone, email),
+    )
+
+
+def _insert_provider(cursor, provider_id, name, base_area_id, service_type, hourly_rate_ksh, phone):
+    cursor.execute(
+        """
+        INSERT INTO service_providers
+            (provider_id, name, base_area_id, service_type, is_verified, total_jobs, hourly_rate_ksh, phone)
+        VALUES (%s, %s, %s, %s, false, 0, %s, %s)
+        """,
+        (provider_id, name, base_area_id, service_type, hourly_rate_ksh, phone),
+    )
+
+
+def _insert_user(cursor, user_id, email, password_hash, role, client_id, provider_id):
+    cursor.execute(
+        """
+        INSERT INTO users (user_id, email, password_hash, role, client_id, provider_id)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        """,
+        (user_id, email, password_hash, role, client_id, provider_id),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Profile helpers (users joined to clients/service_providers, same COALESCE
+# pattern as _fetch_user_by_email above -- not reinvented)
+# ---------------------------------------------------------------------------
+def _fetch_profile(cursor, user_id):
+    cursor.execute(
+        """
+        SELECT u.user_id, u.role, u.email, u.created_at,
+               c.name, c.phone, na_c.area_name,
+               sp.name, sp.phone, na_p.area_name, sp.service_type,
+               sp.hourly_rate_ksh, sp.rating, sp.completion_rate,
+               sp.experience_years, sp.is_verified
+        FROM users u
+        LEFT JOIN clients c ON u.client_id = c.client_id
+        LEFT JOIN nairobi_areas na_c ON c.area_id = na_c.area_id
+        LEFT JOIN service_providers sp ON u.provider_id = sp.provider_id
+        LEFT JOIN nairobi_areas na_p ON sp.base_area_id = na_p.area_id
+        WHERE u.user_id = %s
+        """,
+        (user_id,),
+    )
+    row = cursor.fetchone()
+    if row is None:
+        return None
+    member_since = row[3]
+    return {
+        "user_id": row[0],
+        "role": row[1],
+        "email": row[2],
+        # Same naive-but-actually-UTC timestamp as notifications above.
+        "member_since": member_since.replace(tzinfo=timezone.utc) if member_since else None,
+        "name": row[4] or row[7],
+        "phone": row[5] or row[8],
+        "area_name": row[6],
+        "base_area_name": row[9],
+        "service_type": row[10],
+        "hourly_rate_ksh": row[11],
+        "rating": row[12],
+        "completion_rate": row[13],
+        "experience_years": row[14],
+        "is_verified": row[15],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Notification helpers
+# ---------------------------------------------------------------------------
+def _row_to_notification(row):
+    created_at = row[4]
+    return {
+        "notification_id": row[0],
+        "user_id": row[1],
+        "message": row[2],
+        "is_read": row[3],
+        # Postgres returns a naive datetime for TIMESTAMP columns, but it's
+        # actually UTC (session tz) -- mark it explicitly so JSON/JS clients
+        # don't misread it as local time.
+        "created_at": created_at.replace(tzinfo=timezone.utc) if created_at else None,
+    }
+
+
+def _insert_notification(cursor, user_id, message):
+    cursor.execute(
+        """
+        INSERT INTO notifications (user_id, message)
+        VALUES (%s, %s)
+        RETURNING notification_id, user_id, message, is_read, created_at
+        """,
+        (user_id, message),
+    )
+    return _row_to_notification(cursor.fetchone())
+
+
+def _fetch_notifications(cursor, user_id):
+    cursor.execute(
+        """
+        SELECT notification_id, user_id, message, is_read, created_at
+        FROM notifications
+        WHERE user_id = %s
+        ORDER BY created_at DESC
+        """,
+        (user_id,),
+    )
+    return [_row_to_notification(row) for row in cursor.fetchall()]
+
+
+def _mark_notification_read(cursor, notification_id):
+    cursor.execute(
+        """
+        UPDATE notifications SET is_read = true
+        WHERE notification_id = %s
+        RETURNING notification_id, user_id, message, is_read, created_at
+        """,
+        (notification_id,),
+    )
+    row = cursor.fetchone()
+    return _row_to_notification(row) if row else None
 
 
 # ---------------------------------------------------------------------------
@@ -213,3 +453,139 @@ def recommend(req: RecommendRequest):
 
     ranked.sort(key=lambda r: r.reliability_score, reverse=True)
     return ranked[: req.top_n]
+
+
+@app.post("/auth/register", response_model=RegisterResponse)
+def register(req: RegisterRequest):
+    role = req.role.strip().lower()
+    if role not in ("client", "provider"):
+        raise HTTPException(400, "role must be 'client' or 'provider'.")
+    if not req.email.strip() or not EMAIL_PATTERN.match(req.email.strip()):
+        raise HTTPException(400, "A valid email is required.")
+    if not req.password or len(req.password) < 8:
+        raise HTTPException(400, "Password must be at least 8 characters.")
+    if not req.name.strip():
+        raise HTTPException(400, "Name is required.")
+    if not req.phone.strip():
+        raise HTTPException(400, "Phone is required.")
+    if role == "client" and not req.area_id:
+        raise HTTPException(400, "area_id is required for client registration.")
+    if role == "provider" and (not req.base_area_id or not req.service_type or req.hourly_rate_ksh is None):
+        raise HTTPException(
+            400, "base_area_id, service_type, and hourly_rate_ksh are required for provider registration."
+        )
+
+    email = req.email.strip().lower()
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+
+        if _email_exists(cursor, email):
+            raise HTTPException(409, "An account with this email already exists.")
+
+        client_id = None
+        provider_id = None
+        if role == "client":
+            client_id = _next_id(cursor, "clients", "client_id", "C")
+            _insert_client(cursor, client_id, req.name.strip(), req.area_id, req.phone.strip(), email)
+        else:
+            provider_id = _next_id(cursor, "service_providers", "provider_id", "P")
+            _insert_provider(
+                cursor, provider_id, req.name.strip(), req.base_area_id, req.service_type, req.hourly_rate_ksh,
+                req.phone.strip(),
+            )
+
+        user_id = _next_id(cursor, "users", "user_id", "U")
+        _insert_user(cursor, user_id, email, _hash_password(req.password), role, client_id, provider_id)
+
+        # Real, event-triggered notification for this signup -- not fabricated content.
+        # TODO: future notification triggers (booking confirmed, provider assigned,
+        # etc.) go here once the bookings feature exists -- do not add fake/sample
+        # notifications in the meantime.
+        welcome_message = (
+            f"Welcome to NaiServe, {req.name.strip()}! Ready to request your first service?"
+            if role == "client"
+            else f"Welcome to NaiServe, {req.name.strip()}! Set your availability so clients can start booking you."
+        )
+        _insert_notification(cursor, user_id, welcome_message)
+
+        conn.commit()
+        return RegisterResponse(user_id=user_id, role=role)
+    except HTTPException:
+        conn.rollback()
+        raise
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        raise HTTPException(409, "An account with this email already exists.")
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(400, f"Could not complete registration: {e}")
+    finally:
+        conn.close()
+
+
+@app.post("/auth/login", response_model=LoginResponse, response_model_exclude_none=True)
+def login(req: LoginRequest):
+    email = req.email.strip().lower()
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        user = _fetch_user_by_email(cursor, email)
+    finally:
+        conn.close()
+
+    # Deliberately generic: same error for "no such email" and "wrong password"
+    # so a client can't use this endpoint to enumerate registered emails.
+    if user is None or not _verify_password(req.password, user["password_hash"]):
+        raise HTTPException(401, "Invalid email or password.")
+
+    return LoginResponse(
+        user_id=user["user_id"],
+        role=user["role"],
+        name=user["name"],
+        client_id=user["client_id"],
+        provider_id=user["provider_id"],
+    )
+
+
+@app.get("/profile", response_model=ProfileResponse, response_model_exclude_none=True)
+def get_profile(user_id: str):
+    # user_id alone is the single source of truth for role; a client-supplied
+    # role param would be redundant and could drift from what's actually in
+    # the DB, so we don't accept/trust one here.
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        profile = _fetch_profile(cursor, user_id)
+    finally:
+        conn.close()
+
+    if profile is None:
+        raise HTTPException(404, f"Unknown user_id: {user_id}")
+    return ProfileResponse(**profile)
+
+
+@app.get("/notifications", response_model=list[NotificationResponse])
+def get_notifications(user_id: str):
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        notifications = _fetch_notifications(cursor, user_id)
+    finally:
+        conn.close()
+    return [NotificationResponse(**n) for n in notifications]
+
+
+@app.patch("/notifications/{notification_id}/read", response_model=NotificationResponse)
+def mark_notification_read(notification_id: int):
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        notification = _mark_notification_read(cursor, notification_id)
+        conn.commit()
+    finally:
+        conn.close()
+
+    if notification is None:
+        raise HTTPException(404, f"Unknown notification_id: {notification_id}")
+    return NotificationResponse(**notification)
