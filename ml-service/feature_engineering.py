@@ -8,6 +8,7 @@ Corridor + congestion are looked up via traffic_patterns.served_areas
 (area membership), matching how the real dataset was built -- not derived
 from raw lat/lng.
 """
+import logging
 import math
 import os
 import bcrypt
@@ -117,7 +118,9 @@ def load_reference_data(data_dir=None):
     try:
         return _load_reference_data_from_postgres()
     except Exception as e:
-        print(f"[load_reference_data] Postgres unavailable ({e}), falling back to CSV files.")
+        logging.warning(
+            "load_reference_data: Postgres unavailable (%s), falling back to CSV files.", e
+        )
         return _load_reference_data_from_csv(data_dir)
 
 
