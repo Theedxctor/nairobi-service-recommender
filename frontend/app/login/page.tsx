@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-const API_BASE_URL = "http://localhost:8000";
+import { API_BASE_URL } from "@/lib/api";
 
 interface LoginResponse {
   user_id: string;

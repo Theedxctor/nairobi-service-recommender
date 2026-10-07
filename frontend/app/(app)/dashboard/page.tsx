@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { BoltIcon, BriefcaseIcon, SparkleIcon, WrenchIcon } from "../../icons";
 import { useAuthGuard } from "../../use-auth-guard";
 
-const API_BASE_URL = "http://localhost:8000";
+import { API_BASE_URL } from "@/lib/api";
 
 const SERVICE_ICONS: Record<string, typeof BriefcaseIcon> = {
   plumber: WrenchIcon,
