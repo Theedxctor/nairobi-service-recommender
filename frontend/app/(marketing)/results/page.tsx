@@ -221,13 +221,13 @@ export default function ResultsPage() {
                   </div>
                 </div>
 
-                {/* Select Provider Button */}
-                <button
-                  type="button"
+                {/* Select Provider: review step before anything is booked */}
+                <Link
+                  href={`/booking?provider=${provider.provider_id}`}
                   className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm transition-colors self-start whitespace-nowrap"
                 >
                   Select Provider
-                </button>
+                </Link>
               </div>
 
               {/* Reliability Score and Explanation Section */}
