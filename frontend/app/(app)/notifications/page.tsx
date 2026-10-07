@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useAuthGuard } from "../../use-auth-guard";
 
-const API_BASE_URL = "http://localhost:8000";
+import { API_BASE_URL } from "@/lib/api";
 
 interface Notification {
   notification_id: number;
