@@ -46,7 +46,7 @@ export default function ResultsPage() {
 
   if (!result) {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-16 text-center space-y-4">
+      <div className="max-w-3xl py-12 text-center space-y-4">
         <h1 className="font-heading text-xl font-bold text-stone-900">No recommendations yet</h1>
         <p className="text-sm text-stone-500">
           Tell us what you need and when, and we&apos;ll rank available providers
@@ -65,7 +65,7 @@ export default function ResultsPage() {
   const { request } = result;
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6 px-4 py-8">
+    <div className="max-w-3xl space-y-6">
       {/* 3-Step Progress Indicator */}
       <div className="bg-white p-4 rounded-xl border border-stone-200 shadow-sm">
         <div className="flex items-center justify-between relative">
