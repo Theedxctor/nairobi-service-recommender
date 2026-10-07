@@ -19,7 +19,7 @@ export const NAV_CONFIG: Record<Role, NavItem[]> = {
   ],
   provider: [
     { label: "Home", href: "/provider/dashboard", icon: HomeIcon },
-    { label: "Dashboard", href: "/provider/dashboard/jobs", icon: BriefcaseIcon },
+    { label: "Incoming Requests", href: "/provider/dashboard/jobs", icon: BriefcaseIcon },
     { label: "Availability", href: "/provider/availability", icon: CalendarIcon },
     { label: "Notifications", href: "/notifications", icon: BellIcon },
   ],

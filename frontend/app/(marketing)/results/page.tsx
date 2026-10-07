@@ -1,78 +1,32 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
-
-interface Provider {
-  id: string;
-  name: string;
-  rating: number;
-  reliability_score: number;
-  estimated_travel_min: number;
-  distance_km: number;
-  hourly_rate_ksh: number;
-  explanation: string;
-}
-
-const MOCK_PROVIDERS: Provider[] = [
-  {
-    id: "P0023",
-    name: "John Mwangi",
-    rating: 4.8,
-    reliability_score: 0.94,
-    estimated_travel_min: 16.5,
-    distance_km: 3.8,
-    hourly_rate_ksh: 850,
-    explanation: "Clear route at this time; strong historical completion rate",
-  },
-  {
-    id: "P0145",
-    name: "Faith Achieng",
-    rating: 4.9,
-    reliability_score: 0.89,
-    estimated_travel_min: 22.0,
-    distance_km: 5.2,
-    hourly_rate_ksh: 1100,
-    explanation: "Good road access to provider's base area; high on-time record",
-  },
-  {
-    id: "P0088",
-    name: "David Kiprop",
-    rating: 4.6,
-    reliability_score: 0.82,
-    estimated_travel_min: 28.4,
-    distance_km: 7.1,
-    hourly_rate_ksh: 750,
-    explanation: "Moderate congestion on primary corridor; consistent reliability",
-  },
-  {
-    id: "P0176",
-    name: "Mercy Wanjiku",
-    rating: 4.7,
-    reliability_score: 0.76,
-    estimated_travel_min: 34.0,
-    distance_km: 9.4,
-    hourly_rate_ksh: 900,
-    explanation: "Heavy congestion on connecting arterial route at current time slot",
-  },
-  {
-    id: "P0103",
-    name: "Samuel Omondi",
-    rating: 4.4,
-    reliability_score: 0.68,
-    estimated_travel_min: 42.5,
-    distance_km: 12.3,
-    hourly_rate_ksh: 650,
-    explanation: "Higher distance and delay potential during active rush period",
-  },
-];
+import React, { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useAuthGuard } from "../../use-auth-guard";
+import {
+  RecommendationResult,
+  TIME_SLOT_LABELS,
+  capitalize,
+  ratingLabel,
+  readRecommendation,
+} from "@/lib/recommendation";
 
 type SortKey = "reliability" | "distance" | "price" | "rating";
 
 export default function ResultsPage() {
+  const { checked } = useAuthGuard(["client"]);
   const [sortBy, setSortBy] = useState<SortKey>("reliability");
+  const [result, setResult] = useState<RecommendationResult | null>(null);
+  const [loaded, setLoaded] = useState(false);
+
+  // Written by /request after a successful POST /recommend.
+  useEffect(() => {
+    setResult(readRecommendation());
+    setLoaded(true);
+  }, []);
 
   const sortedProviders = useMemo(() => {
-    const list = [...MOCK_PROVIDERS];
+    const list = [...(result?.providers ?? [])];
     switch (sortBy) {
       case "reliability":
         return list.sort((a, b) => b.reliability_score - a.reliability_score);
@@ -81,11 +35,34 @@ export default function ResultsPage() {
       case "price":
         return list.sort((a, b) => a.hourly_rate_ksh - b.hourly_rate_ksh);
       case "rating":
-        return list.sort((a, b) => b.rating - a.rating);
+        // Unrated (new) providers sort last rather than as 0 or NaN.
+        return list.sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1));
       default:
         return list;
     }
-  }, [sortBy]);
+  }, [sortBy, result]);
+
+  if (!checked || !loaded) return null;
+
+  if (!result) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-16 text-center space-y-4">
+        <h1 className="text-xl font-bold text-slate-900">No recommendations yet</h1>
+        <p className="text-sm text-slate-500">
+          Tell us what you need and when, and we&apos;ll rank available providers
+          by predicted arrival reliability.
+        </p>
+        <Link
+          href="/request"
+          className="inline-flex px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold"
+        >
+          Start a request
+        </Link>
+      </div>
+    );
+  }
+
+  const { request } = result;
 
   return (
     <div className="max-w-3xl mx-auto space-y-6 px-4 py-8">
@@ -133,6 +110,11 @@ export default function ResultsPage() {
             Recommended Providers
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
+            {capitalize(request.service_type)} in {request.client_area} ·{" "}
+            {TIME_SLOT_LABELS[request.time_slot] ?? request.time_slot} ·{" "}
+            {capitalize(request.day_type)}
+          </p>
+          <p className="text-xs text-slate-500 mt-0.5">
             Ranked by context-aware arrival reliability and location factors
           </p>
         </div>
@@ -157,12 +139,23 @@ export default function ResultsPage() {
 
       {/* Provider Cards List */}
       <div className="space-y-4" aria-live="polite">
+        {sortedProviders.length === 0 && (
+          // /recommend can return 200 with an empty list if every candidate
+          // was skipped during scoring (e.g. missing area data).
+          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-sm text-slate-500">
+            No providers could be scored for this request.{" "}
+            <Link href="/request" className="font-semibold text-indigo-600 hover:underline">
+              Try a different area or time
+            </Link>
+            .
+          </div>
+        )}
         {sortedProviders.map((provider, index) => {
           const scorePercent = Math.round(provider.reliability_score * 100);
 
           return (
             <div
-              key={provider.id}
+              key={provider.provider_id}
               className="bg-white rounded-xl border border-slate-200 shadow-sm p-5 hover:border-indigo-200 transition-all space-y-4"
             >
               <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
@@ -176,7 +169,7 @@ export default function ResultsPage() {
                       {provider.name}
                     </h2>
                     <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                      ★ {provider.rating.toFixed(1)}
+                      {ratingLabel(provider.rating)}
                     </span>
                   </div>
 
@@ -230,13 +223,13 @@ export default function ResultsPage() {
                   </div>
                 </div>
 
-                {/* Select Provider Button */}
-                <button
-                  type="button"
+                {/* Select Provider: review step before anything is booked */}
+                <Link
+                  href={`/booking?provider=${provider.provider_id}`}
                   className="px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold shadow-sm transition-colors self-start whitespace-nowrap"
                 >
                   Select Provider
-                </button>
+                </Link>
               </div>
 
               {/* Reliability Score and Explanation Section */}
@@ -282,7 +275,7 @@ export default function ResultsPage() {
 
                 {/* Explanation in italics */}
                 <p className="text-xs italic text-slate-500">
-                  {provider.explanation}
+                  {capitalize(provider.explanation)}
                 </p>
               </div>
             </div>

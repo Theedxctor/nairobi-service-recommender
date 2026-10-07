@@ -34,7 +34,10 @@ Runs on [http://localhost:3000](http://localhost:3000) (falls back to 3001 if
 - `app/login/`, `app/register/` — top-level, no shared chrome
 - `app/globals.css`, `tailwind.config.ts` — teal/stone design system
 
-## Environment
-The backend base URL is currently hardcoded to `http://localhost:8000` in the
-pages that call it. If you need to point at a different backend, search for
-that string under `app/`.
+## Environment variables
+| Variable | Default | Purpose |
+|---|---|---|
+| `NEXT_PUBLIC_API_URL` | `http://localhost:8000` | Base URL of the FastAPI backend |
+
+Copy `.env.example` to `.env.local` to override. The value is read in
+`lib/api.ts` and inlined at build time.

@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
-const API_BASE_URL = "http://localhost:8000";
+import { API_BASE_URL } from "@/lib/api";
 
 // Same Nairobi area list backing data/raw/nairobi_areas.csv, matching the
 // area used on the service request form. area_id is what the API expects.

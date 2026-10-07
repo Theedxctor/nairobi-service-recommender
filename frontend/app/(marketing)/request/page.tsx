@@ -1,24 +1,88 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { useAuthGuard } from "../../use-auth-guard";
+import { API_BASE_URL, NETWORK_ERROR_MESSAGE, apiErrorMessage } from "@/lib/api";
+import {
+  RankedProvider,
+  RecommendRequest,
+  TIME_SLOT_LABELS,
+  capitalize,
+  saveRecommendation,
+} from "@/lib/recommendation";
 
 export default function RequestPage() {
   const { checked } = useAuthGuard(["client"]);
-  const [serviceType, setServiceType] = useState("Plumber");
+  const router = useRouter();
+  const [areas, setAreas] = useState<string[]>([]);
+  const [serviceTypes, setServiceTypes] = useState<string[]>([]);
+  const [serviceType, setServiceType] = useState("plumber");
   const [clientArea, setClientArea] = useState("Kilimani");
-  const [dayType, setDayType] = useState("Weekday");
-  const [timeSlot, setTimeSlot] = useState("Morning Rush");
+  const [dayType, setDayType] = useState("weekday");
+  const [timeSlot, setTimeSlot] = useState("morning_rush");
+  const [optionsState, setOptionsState] = useState<"loading" | "ready" | "failed">("loading");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  // Options come from the API so the form can only send values the model
+  // was trained on (free text silently produced wrong scores — see #42).
+  const loadOptions = useCallback(() => {
+    setOptionsState("loading");
+    const getList = (path: string) =>
+      fetch(`${API_BASE_URL}${path}`).then((r) => {
+        if (!r.ok) throw new Error(path);
+        return r.json() as Promise<string[]>;
+      });
+    Promise.all([getList("/areas"), getList("/service_types")])
+      .then(([areaList, typeList]) => {
+        setAreas(areaList);
+        setServiceTypes(typeList);
+        setOptionsState("ready");
+      })
+      .catch(() => setOptionsState("failed"));
+  }, []);
+
+  useEffect(loadOptions, [loadOptions]);
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    // Form submission handling (API integration will be implemented in a separate task)
-    console.log("Submitted request:", {
-      serviceType,
-      clientArea,
-      dayType,
-      timeSlot,
-    });
+    setError(null);
+    setSubmitting(true);
+
+    const body: RecommendRequest = {
+      client_area: clientArea,
+      service_type: serviceType,
+      time_slot: timeSlot,
+      day_type: dayType,
+      top_n: 10,
+    };
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/recommend`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => null);
+      if (res.status === 404) {
+        // No provider of this type, or none available at this day/time.
+        setError(
+          `No ${serviceType} is available in that slot. Try a different time slot or day.`
+        );
+        return;
+      }
+      if (!res.ok) {
+        setError(apiErrorMessage(data));
+        return;
+      }
+      saveRecommendation({ request: body, providers: data as RankedProvider[] });
+      router.push("/results");
+    } catch {
+      setError(NETWORK_ERROR_MESSAGE);
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   if (!checked) return null;
@@ -75,7 +139,23 @@ export default function RequestPage() {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        {optionsState === "failed" && (
+          <div
+            role="alert"
+            className="mb-6 flex items-center justify-between gap-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+          >
+            <span>{NETWORK_ERROR_MESSAGE}</span>
+            <button
+              type="button"
+              onClick={loadOptions}
+              className="shrink-0 rounded-md border border-red-300 bg-white px-3 py-1 text-xs font-semibold hover:bg-red-100"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-6" aria-busy={optionsState === "loading"}>
           {/* Service Type */}
           <div>
             <label
@@ -90,11 +170,11 @@ export default function RequestPage() {
               onChange={(e) => setServiceType(e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 bg-white text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
             >
-              <option value="Electrician">Electrician</option>
-              <option value="Plumber">Plumber</option>
-              <option value="Cleaner">Cleaner</option>
-              <option value="Technician">Technician</option>
-              <option value="Carpenter">Carpenter</option>
+              {serviceTypes.map((type) => (
+                <option key={type} value={type}>
+                  {capitalize(type)}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -106,15 +186,19 @@ export default function RequestPage() {
             >
               Client Area
             </label>
-            <input
-              type="text"
+            <select
               id="clientArea"
-              placeholder="e.g. Kilimani, Westlands, Karen, CBD..."
               value={clientArea}
               onChange={(e) => setClientArea(e.target.value)}
               required
               className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 bg-white text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-            />
+            >
+              {areas.map((area) => (
+                <option key={area} value={area}>
+                  {area}
+                </option>
+              ))}
+            </select>
           </div>
 
           {/* Preferred Day */}
@@ -125,7 +209,7 @@ export default function RequestPage() {
             <div className="grid grid-cols-2 gap-4">
               <label
                 className={`relative flex items-center justify-center p-3 rounded-lg border cursor-pointer text-sm font-medium transition-colors ${
-                  dayType === "Weekday"
+                  dayType === "weekday"
                     ? "border-indigo-600 bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600"
                     : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                 }`}
@@ -133,9 +217,9 @@ export default function RequestPage() {
                 <input
                   type="radio"
                   name="dayType"
-                  value="Weekday"
-                  checked={dayType === "Weekday"}
-                  onChange={() => setDayType("Weekday")}
+                  value="weekday"
+                  checked={dayType === "weekday"}
+                  onChange={() => setDayType("weekday")}
                   className="peer sr-only"
                 />
                 <span className="peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-indigo-600 rounded">
@@ -145,7 +229,7 @@ export default function RequestPage() {
 
               <label
                 className={`relative flex items-center justify-center p-3 rounded-lg border cursor-pointer text-sm font-medium transition-colors ${
-                  dayType === "Weekend"
+                  dayType === "weekend"
                     ? "border-indigo-600 bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600"
                     : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
                 }`}
@@ -153,9 +237,9 @@ export default function RequestPage() {
                 <input
                   type="radio"
                   name="dayType"
-                  value="Weekend"
-                  checked={dayType === "Weekend"}
-                  onChange={() => setDayType("Weekend")}
+                  value="weekend"
+                  checked={dayType === "weekend"}
+                  onChange={() => setDayType("weekend")}
                   className="peer sr-only"
                 />
                 <span className="peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-indigo-600 rounded">
@@ -180,21 +264,32 @@ export default function RequestPage() {
               onChange={(e) => setTimeSlot(e.target.value)}
               className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 bg-white text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
             >
-              <option value="Morning Rush">Morning Rush (07:00 - 09:00)</option>
-              <option value="Midday">Midday (11:00 - 14:00)</option>
-              <option value="Evening Rush">Evening Rush (16:00 - 19:00)</option>
-              <option value="Night">Night (21:00 - 05:00)</option>
-              <option value="Weekend Day">Weekend Day (Daytime)</option>
+              {Object.entries(TIME_SLOT_LABELS).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
             </select>
           </div>
+
+          {error && (
+            <p role="alert" className="text-sm text-red-600">
+              {error}
+            </p>
+          )}
 
           {/* Submit Button */}
           <div className="pt-2">
             <button
               type="submit"
-              className="w-full inline-flex items-center justify-center py-3 px-4 rounded-lg text-white font-medium bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 shadow-sm transition-colors"
+              disabled={submitting || optionsState !== "ready"}
+              className="w-full inline-flex items-center justify-center py-3 px-4 rounded-lg text-white font-medium bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 shadow-sm transition-colors"
             >
-              Find Providers
+              {optionsState === "loading"
+                ? "Loading options..."
+                : submitting
+                ? "Finding providers..."
+                : "Find Providers"}
             </button>
           </div>
         </form>
