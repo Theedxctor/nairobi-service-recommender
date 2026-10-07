@@ -105,6 +105,18 @@ def _load_reference_data_from_csv(data_dir=None):
     return {"areas": areas, "traffic": traffic, "providers": providers, "availability": availability}
 
 
+def completion_rate_prior(providers_df):
+    """Cold-start value for providers with no job history (e.g. accounts
+    created through /auth/register): the median completion rate of providers
+    that do have history. Without it the model receives NaN, and XGBoost's
+    missing-value branch scored brand-new providers ~0.91, above proven ones
+    (#52). The median is a neutral "typical provider" assumption, and the
+    explanation string tells the client it is an assumption.
+    """
+    rates = pd.to_numeric(providers_df["completion_rate"], errors="coerce").dropna()
+    return float(rates.median())
+
+
 def load_reference_data(data_dir=None):
     """
     Loads reference data (areas, providers, traffic, availability) from
@@ -113,15 +125,17 @@ def load_reference_data(data_dir=None):
     database is reachable, so local dev/tests still work without Docker.
     """
     if data_dir is not None:
-        return _load_reference_data_from_csv(data_dir)
-
-    try:
-        return _load_reference_data_from_postgres()
-    except Exception as e:
-        logging.warning(
-            "load_reference_data: Postgres unavailable (%s), falling back to CSV files.", e
-        )
-        return _load_reference_data_from_csv(data_dir)
+        ref = _load_reference_data_from_csv(data_dir)
+    else:
+        try:
+            ref = _load_reference_data_from_postgres()
+        except Exception as e:
+            logging.warning(
+                "load_reference_data: Postgres unavailable (%s), falling back to CSV files.", e
+            )
+            ref = _load_reference_data_from_csv(data_dir)
+    ref["completion_rate_prior"] = completion_rate_prior(ref["providers"])
+    return ref
 
 
 def haversine_km(lat1, lon1, lat2, lon2):
@@ -201,14 +215,22 @@ def build_feature_row(client_area, provider_row, time_slot, day_type, ref):
     raw_travel_min = (distance_km / max(avg_speed_kmh, 1)) * 60
     estimated_travel_min = round(max(float(raw_travel_min), 4.0), 1)
 
+    has_history = pd.notna(provider_row["completion_rate"])
+    if has_history:
+        completion_rate = float(provider_row["completion_rate"])
+    else:
+        prior = ref.get("completion_rate_prior")
+        completion_rate = prior if prior is not None else completion_rate_prior(ref["providers"])
+
     return {
         # --- the 5 features the model actually consumes ---
         "distance_km": distance_km,
         "congestion_multiplier": congestion_multiplier,
         "time_slot": time_slot,
         "provider_area_road_quality": prov_area_row.road_quality,
-        "provider_completion_rate": provider_row["completion_rate"],
+        "provider_completion_rate": completion_rate,
         # --- extra context, for display/explanation only, not fed to the model ---
+        "provider_has_history": bool(has_history),
         "primary_corridor": corridor,
         "avg_speed_kmh": avg_speed_kmh,
         "estimated_travel_min": estimated_travel_min,
