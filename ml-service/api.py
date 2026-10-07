@@ -20,7 +20,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 import joblib
 import pandas as pd
@@ -60,11 +60,37 @@ ref = load_reference_data()
 # ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------
-class PredictRequest(BaseModel):
-    client_area: str = Field(..., examples=["Kilimani"])
-    provider_id: str = Field(..., examples=["P0001"])
+# Canonical values the model was trained on. Anything else used to fall through
+# to a default congestion lookup and return a confidently wrong score (#42).
+TIME_SLOTS = ["morning_rush", "midday", "evening_rush", "night", "weekend_day"]
+DAY_TYPES = ["weekday", "weekend"]
+
+
+def _canonical(value, allowed, field_name):
+    """Normalise display labels ("Morning Rush") and reject unknown values."""
+    normalised = str(value).strip().lower().replace(" ", "_")
+    if normalised not in allowed:
+        raise ValueError(f"{field_name} must be one of {allowed}, got {value!r}")
+    return normalised
+
+
+class ContextFields(BaseModel):
     time_slot: str = Field(..., examples=["evening_rush"])
     day_type: str = Field(..., examples=["weekday"])
+
+    @field_validator("time_slot")
+    @classmethod
+    def _check_time_slot(cls, v):
+        return _canonical(v, TIME_SLOTS, "time_slot")
+
+    @field_validator("day_type")
+    @classmethod
+    def _check_day_type(cls, v):
+        return _canonical(v, DAY_TYPES, "day_type")
+
+class PredictRequest(ContextFields):
+    client_area: str = Field(..., examples=["Kilimani"])
+    provider_id: str = Field(..., examples=["P0001"])
 
 
 class PredictResponse(BaseModel):
@@ -76,11 +102,9 @@ class PredictResponse(BaseModel):
     explanation: str
 
 
-class RecommendRequest(BaseModel):
+class RecommendRequest(ContextFields):
     client_area: str = Field(..., examples=["Kilimani"])
     service_type: str = Field(..., examples=["plumber"])
-    time_slot: str = Field(..., examples=["evening_rush"])
-    day_type: str = Field(..., examples=["weekday"])
     top_n: Optional[int] = 5
 
 
@@ -371,18 +395,12 @@ def get_service_types():
 
 @app.get("/time_slots", response_model=list[str])
 def get_time_slots():
-    return [
-        "morning_rush",
-        "midday",
-        "evening_rush",
-        "night",
-        "weekend_day",
-    ]
+    return TIME_SLOTS
 
 
 @app.get("/day_types", response_model=list[str])
 def get_day_types():
-    return ["weekday", "weekend"]
+    return DAY_TYPES
 
 
 @app.post("/predict", response_model=PredictResponse)
