@@ -137,6 +137,17 @@ export default function ResultsPage() {
 
       {/* Provider Cards List */}
       <div className="space-y-4" aria-live="polite">
+        {sortedProviders.length === 0 && (
+          // /recommend can return 200 with an empty list if every candidate
+          // was skipped during scoring (e.g. missing area data).
+          <div className="bg-white rounded-xl border border-slate-200 p-8 text-center text-sm text-slate-500">
+            No providers could be scored for this request.{" "}
+            <Link href="/request" className="font-semibold text-indigo-600 hover:underline">
+              Try a different area or time
+            </Link>
+            .
+          </div>
+        )}
         {sortedProviders.map((provider, index) => {
           const scorePercent = Math.round(provider.reliability_score * 100);
 

@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthGuard } from "../../use-auth-guard";
-import { API_BASE_URL } from "@/lib/api";
+import { API_BASE_URL, NETWORK_ERROR_MESSAGE, apiErrorMessage } from "@/lib/api";
 import {
   RankedProvider,
   RecommendRequest,
@@ -21,24 +21,29 @@ export default function RequestPage() {
   const [clientArea, setClientArea] = useState("Kilimani");
   const [dayType, setDayType] = useState("weekday");
   const [timeSlot, setTimeSlot] = useState("morning_rush");
+  const [optionsState, setOptionsState] = useState<"loading" | "ready" | "failed">("loading");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   // Options come from the API so the form can only send values the model
   // was trained on (free text silently produced wrong scores — see #42).
-  useEffect(() => {
-    Promise.all([
-      fetch(`${API_BASE_URL}/areas`).then((r) => r.json()),
-      fetch(`${API_BASE_URL}/service_types`).then((r) => r.json()),
-    ])
-      .then(([areaList, typeList]: [string[], string[]]) => {
+  const loadOptions = useCallback(() => {
+    setOptionsState("loading");
+    const getList = (path: string) =>
+      fetch(`${API_BASE_URL}${path}`).then((r) => {
+        if (!r.ok) throw new Error(path);
+        return r.json() as Promise<string[]>;
+      });
+    Promise.all([getList("/areas"), getList("/service_types")])
+      .then(([areaList, typeList]) => {
         setAreas(areaList);
         setServiceTypes(typeList);
+        setOptionsState("ready");
       })
-      .catch(() =>
-        setError("Could not reach the recommendation service. Is the backend running?")
-      );
+      .catch(() => setOptionsState("failed"));
   }, []);
+
+  useEffect(loadOptions, [loadOptions]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,15 +64,22 @@ export default function RequestPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => null);
+      if (res.status === 404) {
+        // No provider of this type, or none available at this day/time.
+        setError(
+          `No ${serviceType} is available in that slot. Try a different time slot or day.`
+        );
+        return;
+      }
       if (!res.ok) {
-        setError(data.detail ?? "Something went wrong. Please try again.");
+        setError(apiErrorMessage(data));
         return;
       }
       saveRecommendation({ request: body, providers: data as RankedProvider[] });
       router.push("/results");
     } catch {
-      setError("Could not reach the recommendation service. Is the backend running?");
+      setError(NETWORK_ERROR_MESSAGE);
     } finally {
       setSubmitting(false);
     }
@@ -127,7 +139,23 @@ export default function RequestPage() {
           </p>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-6">
+        {optionsState === "failed" && (
+          <div
+            role="alert"
+            className="mb-6 flex items-center justify-between gap-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+          >
+            <span>{NETWORK_ERROR_MESSAGE}</span>
+            <button
+              type="button"
+              onClick={loadOptions}
+              className="shrink-0 rounded-md border border-red-300 bg-white px-3 py-1 text-xs font-semibold hover:bg-red-100"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-6" aria-busy={optionsState === "loading"}>
           {/* Service Type */}
           <div>
             <label
@@ -254,10 +282,14 @@ export default function RequestPage() {
           <div className="pt-2">
             <button
               type="submit"
-              disabled={submitting || areas.length === 0}
+              disabled={submitting || optionsState !== "ready"}
               className="w-full inline-flex items-center justify-center py-3 px-4 rounded-lg text-white font-medium bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 shadow-sm transition-colors"
             >
-              {submitting ? "Finding providers..." : "Find Providers"}
+              {optionsState === "loading"
+                ? "Loading options..."
+                : submitting
+                ? "Finding providers..."
+                : "Find Providers"}
             </button>
           </div>
         </form>
