@@ -3,9 +3,10 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { BoltIcon, BriefcaseIcon, SparkleIcon, WrenchIcon } from "../../icons";
+import { BookingCard, useBookings } from "../../bookings-list";
 import { useAuthGuard } from "../../use-auth-guard";
 
-const API_BASE_URL = "http://localhost:8000";
+import { API_BASE_URL } from "@/lib/api";
 
 const SERVICE_ICONS: Record<string, typeof BriefcaseIcon> = {
   plumber: WrenchIcon,
@@ -75,14 +76,38 @@ export default function ClientDashboardPage() {
       {/* Recent activity */}
       <div>
         <h2 className="font-heading text-xl font-semibold text-stone-900">Recent Activity</h2>
-        {/* TODO: replace with real GET /bookings?client_id= once that endpoint exists */}
-        <div className="mt-4 rounded-lg border border-dashed border-stone-300 bg-white p-10 text-center">
-          <p className="text-base text-stone-500">You haven&apos;t made a booking yet.</p>
-          <Link href="/request" className="mt-3 inline-block text-sm font-semibold text-teal-700 hover:text-teal-800">
-            Request your first service &rarr;
-          </Link>
-        </div>
+        <RecentBookings clientId={auth?.client_id} />
       </div>
+    </div>
+  );
+}
+
+// Latest three bookings; the full list (with cancel actions) is on My Bookings.
+function RecentBookings({ clientId }: { clientId: string | undefined }) {
+  const { bookings, state } = useBookings("client", clientId);
+
+  if (state === "loading") return <p className="mt-4 text-sm text-stone-500">Loading...</p>;
+  if (state === "failed") {
+    return <p className="mt-4 text-sm text-red-600">Couldn&apos;t load your bookings right now.</p>;
+  }
+  if (bookings.length === 0) {
+    return (
+      <div className="mt-4 rounded-lg border border-dashed border-stone-300 bg-white p-10 text-center">
+        <p className="text-base text-stone-500">You haven&apos;t made a booking yet.</p>
+        <Link href="/request" className="mt-3 inline-block text-sm font-semibold text-teal-700 hover:text-teal-800">
+          Request your first service &rarr;
+        </Link>
+      </div>
+    );
+  }
+  return (
+    <div className="mt-4 space-y-3">
+      {bookings.slice(0, 3).map((b) => (
+        <BookingCard key={b.booking_id} booking={b} role="client" ownerId={clientId!} />
+      ))}
+      <Link href="/dashboard/bookings" className="inline-block text-sm font-semibold text-teal-700 hover:text-teal-800">
+        View all bookings &rarr;
+      </Link>
     </div>
   );
 }
