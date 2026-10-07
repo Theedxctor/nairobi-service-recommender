@@ -4,6 +4,7 @@ import React, { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { readAuth, useAuthGuard } from "../../use-auth-guard";
+import { StatusPill } from "../../bookings-list";
 import { API_BASE_URL, NETWORK_ERROR_MESSAGE, apiErrorMessage } from "@/lib/api";
 import {
   Booking,
@@ -291,23 +292,6 @@ function ScoreBadge({ score }: { score: number }) {
       <p className="font-heading text-2xl font-semibold text-teal-700">{Math.round(score * 100)}%</p>
       <p className="text-xs text-stone-500">predicted reliability</p>
     </div>
-  );
-}
-
-const STATUS_STYLES: Record<Booking["status"], string> = {
-  pending: "bg-amber-50 text-amber-800 border-amber-200",
-  confirmed: "bg-teal-50 text-teal-800 border-teal-200",
-  completed: "bg-stone-100 text-stone-700 border-stone-200",
-  cancelled: "bg-red-50 text-red-700 border-red-200",
-};
-
-function StatusPill({ status }: { status: Booking["status"] }) {
-  return (
-    <span
-      className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold ${STATUS_STYLES[status]}`}
-    >
-      {capitalize(status)}
-    </span>
   );
 }
 

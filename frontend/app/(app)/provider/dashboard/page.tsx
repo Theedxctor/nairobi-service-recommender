@@ -1,14 +1,15 @@
 "use client";
 
 import Link from "next/link";
-// TODO: replace "Coming soon" once these endpoints exist:
-//   Active Bookings        -> GET /provider/bookings?status=active
+// Active Bookings is live (GET /bookings?provider_id=). TODO: replace the other
+// "Coming soon" stats once these endpoints exist:
 //   Completion Rate        -> GET /provider/stats (completion_rate)
 //   Average Rating         -> GET /provider/stats (rating)
 //   This Month's Earnings  -> GET /provider/earnings?month=current
+import { isActive, useBookings } from "../../../bookings-list";
 import { useAuthGuard } from "../../../use-auth-guard";
 
-const STAT_LABELS = ["Active Bookings", "Completion Rate", "Average Rating", "This Month's Earnings"];
+const PLACEHOLDER_STATS = ["Completion Rate", "Average Rating", "This Month's Earnings"];
 
 export default function ProviderDashboardPage() {
   const { auth, checked } = useAuthGuard(["provider"]);
@@ -24,7 +25,8 @@ export default function ProviderDashboardPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
-        {STAT_LABELS.map((label) => (
+        <ActiveBookingsStat providerId={auth?.provider_id} />
+        {PLACEHOLDER_STATS.map((label) => (
           <div key={label} className="rounded-lg border border-stone-200 bg-white p-6">
             <p className="text-sm font-medium text-stone-500">{label}</p>
             <p className="mt-3 font-heading text-2xl font-semibold text-stone-300">Coming soon</p>
@@ -42,5 +44,20 @@ export default function ProviderDashboardPage() {
         </p>
       </Link>
     </div>
+  );
+}
+
+function ActiveBookingsStat({ providerId }: { providerId: string | undefined }) {
+  const { bookings, state } = useBookings("provider", providerId);
+  const value = state === "ready" ? String(bookings.filter(isActive).length) : state === "failed" ? "—" : "…";
+
+  return (
+    <Link
+      href="/provider/dashboard/jobs"
+      className="rounded-lg border border-stone-200 bg-white p-6 transition-colors hover:border-teal-700"
+    >
+      <p className="text-sm font-medium text-stone-500">Active Bookings</p>
+      <p className="mt-3 font-heading text-2xl font-semibold text-stone-900">{value}</p>
+    </Link>
   );
 }
