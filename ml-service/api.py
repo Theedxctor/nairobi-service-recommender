@@ -120,7 +120,7 @@ class RankedProvider(BaseModel):
     estimated_travel_min: float
     distance_km: float
     hourly_rate_ksh: int
-    rating: float
+    rating: Optional[float] = None  # None until a new provider has been rated
     explanation: str
 
 
@@ -273,6 +273,29 @@ def _insert_user(cursor, user_id, email, password_hash, role, client_id, provide
         """,
         (user_id, email, password_hash, role, client_id, provider_id),
     )
+
+
+def _add_provider_to_cache(provider_id, req):
+    """ref['providers'] is loaded once at startup; without this a provider who
+    just registered is "unknown" to /predict, /recommend and /bookings until
+    the API restarts (#52). Columns mirror _PROVIDERS_SQL; history fields stay
+    empty, so scoring uses the cold-start completion rate."""
+    areas = ref["areas"]
+    match = areas.loc[areas["area_id"] == req.base_area_id, "area_name"]
+    new_row = pd.DataFrame([{
+        "provider_id": provider_id,
+        "name": req.name.strip(),
+        "service_type": req.service_type,
+        "base_area_name": match.iloc[0] if not match.empty else None,
+        "rating": None,
+        "completion_rate": None,
+        "experience_years": None,
+        "avg_response_min": None,
+        "total_jobs": 0,
+        "is_verified": False,
+        "hourly_rate_ksh": req.hourly_rate_ksh,
+    }])
+    ref["providers"] = pd.concat([ref["providers"], new_row], ignore_index=True)
 
 
 # ---------------------------------------------------------------------------
@@ -497,7 +520,9 @@ def _explain(features, provider_row):
         reasons.append("good road access to provider's base area")
     elif features["provider_area_road_quality"] == "poor":
         reasons.append("poor road access to provider's base area")
-    if provider_row["completion_rate"] >= 0.85:
+    if not features["provider_has_history"]:
+        reasons.append("new provider with no job history yet (completion rate assumed at the platform median)")
+    elif provider_row["completion_rate"] >= 0.85:
         reasons.append("strong historical completion rate")
     return "; ".join(reasons) if reasons else "based on standard traffic and provider profile"
 
@@ -601,7 +626,7 @@ def recommend(req: RecommendRequest):
             estimated_travel_min=round(max(4.0, float(features["estimated_travel_min"])), 1),
             distance_km=round(max(0.8, float(features["distance_km"])), 2),
             hourly_rate_ksh=int(provider_row["hourly_rate_ksh"]),
-            rating=float(provider_row["rating"]),
+            rating=None if pd.isna(provider_row["rating"]) else float(provider_row["rating"]),
             explanation=_explain(features, provider_row),
         ))
 
@@ -663,6 +688,8 @@ def register(req: RegisterRequest):
         _insert_notification(cursor, user_id, welcome_message)
 
         conn.commit()
+        if provider_id:
+            _add_provider_to_cache(provider_id, req)
         return RegisterResponse(user_id=user_id, role=role)
     except HTTPException:
         conn.rollback()
