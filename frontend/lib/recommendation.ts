@@ -6,7 +6,7 @@ export interface RankedProvider {
   estimated_travel_min: number;
   distance_km: number;
   hourly_rate_ksh: number;
-  rating: number;
+  rating: number | null; // null for new providers with no completed jobs
   explanation: string;
 }
 
@@ -50,6 +50,10 @@ export function readRecommendation(): RecommendationResult | null {
   } catch {
     return null;
   }
+}
+
+export function ratingLabel(rating: number | null): string {
+  return rating === null ? "New" : `★ ${rating.toFixed(1)}`;
 }
 
 export function capitalize(text: string): string {
