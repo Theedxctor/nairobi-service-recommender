@@ -36,7 +36,7 @@ function BookingStep() {
   if (!checked) return null;
 
   return (
-    <div className="mx-auto max-w-2xl space-y-6 px-4 py-12">
+    <div className="max-w-2xl space-y-6">
       {bookingId ? (
         <Confirmation bookingId={Number(bookingId)} />
       ) : (
