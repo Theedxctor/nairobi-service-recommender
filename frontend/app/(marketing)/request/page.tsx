@@ -90,37 +90,37 @@ export default function RequestPage() {
   return (
     <div className="max-w-2xl mx-auto space-y-8 px-4 py-8">
       {/* 3-Step Progress Indicator */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+      <div className="bg-white p-4 rounded-xl border border-stone-200 shadow-sm">
         <div className="flex items-center justify-between relative">
           {/* Connecting line */}
-          <div className="absolute left-6 right-6 top-1/2 -translate-y-1/2 h-0.5 bg-slate-200 -z-0" />
+          <div className="absolute left-6 right-6 top-1/2 -transtone-y-1/2 h-0.5 bg-stone-200 -z-0" />
 
           {/* Step 1: Active */}
           <div className="flex items-center gap-2 bg-white px-2 z-10">
-            <span className="w-8 h-8 rounded-full bg-indigo-600 text-white flex items-center justify-center font-semibold text-sm shadow-sm">
+            <span className="w-8 h-8 rounded-full bg-teal-600 text-white flex items-center justify-center font-semibold text-sm shadow-sm">
               1
             </span>
-            <span className="text-sm font-semibold text-indigo-600">
+            <span className="text-sm font-semibold text-teal-600">
               Request Details
             </span>
           </div>
 
           {/* Step 2: Inactive */}
           <div className="flex items-center gap-2 bg-white px-2 z-10">
-            <span className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 border border-slate-200 flex items-center justify-center font-semibold text-sm">
+            <span className="w-8 h-8 rounded-full bg-stone-100 text-stone-500 border border-stone-200 flex items-center justify-center font-semibold text-sm">
               2
             </span>
-            <span className="text-sm font-medium text-slate-400">
+            <span className="text-sm font-medium text-stone-400">
               View Recommendations
             </span>
           </div>
 
           {/* Step 3: Inactive */}
           <div className="flex items-center gap-2 bg-white px-2 z-10">
-            <span className="w-8 h-8 rounded-full bg-slate-100 text-slate-500 border border-slate-200 flex items-center justify-center font-semibold text-sm">
+            <span className="w-8 h-8 rounded-full bg-stone-100 text-stone-500 border border-stone-200 flex items-center justify-center font-semibold text-sm">
               3
             </span>
-            <span className="text-sm font-medium text-slate-400">
+            <span className="text-sm font-medium text-stone-400">
               Confirm Booking
             </span>
           </div>
@@ -128,12 +128,12 @@ export default function RequestPage() {
       </div>
 
       {/* Service Request Form */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 sm:p-8">
-        <div className="mb-6 pb-4 border-b border-slate-100">
-          <h1 className="text-2xl font-bold text-slate-900">
+      <div className="bg-white rounded-xl border border-stone-200 shadow-sm p-6 sm:p-8">
+        <div className="mb-6 pb-4 border-b border-stone-100">
+          <h1 className="font-heading text-2xl font-bold text-stone-900">
             Request a Household Service
           </h1>
-          <p className="text-sm text-slate-500 mt-1">
+          <p className="text-sm text-stone-500 mt-1">
             Specify your location and timing to find the most reliable available
             providers in Nairobi.
           </p>
@@ -160,7 +160,7 @@ export default function RequestPage() {
           <div>
             <label
               htmlFor="serviceType"
-              className="block text-sm font-medium text-slate-700 mb-1"
+              className="block text-sm font-medium text-stone-700 mb-1"
             >
               Service Type
             </label>
@@ -168,7 +168,7 @@ export default function RequestPage() {
               id="serviceType"
               value={serviceType}
               onChange={(e) => setServiceType(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 bg-white text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+              className="w-full px-3.5 py-2.5 rounded-lg border border-stone-300 bg-white text-stone-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-sm"
             >
               {serviceTypes.map((type) => (
                 <option key={type} value={type}>
@@ -182,7 +182,7 @@ export default function RequestPage() {
           <div>
             <label
               htmlFor="clientArea"
-              className="block text-sm font-medium text-slate-700 mb-1"
+              className="block text-sm font-medium text-stone-700 mb-1"
             >
               Client Area
             </label>
@@ -191,7 +191,7 @@ export default function RequestPage() {
               value={clientArea}
               onChange={(e) => setClientArea(e.target.value)}
               required
-              className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 bg-white text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+              className="w-full px-3.5 py-2.5 rounded-lg border border-stone-300 bg-white text-stone-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-sm"
             >
               {areas.map((area) => (
                 <option key={area} value={area}>
@@ -203,15 +203,15 @@ export default function RequestPage() {
 
           {/* Preferred Day */}
           <fieldset>
-            <legend className="block text-sm font-medium text-slate-700 mb-2">
+            <legend className="block text-sm font-medium text-stone-700 mb-2">
               Preferred Day
             </legend>
             <div className="grid grid-cols-2 gap-4">
               <label
                 className={`relative flex items-center justify-center p-3 rounded-lg border cursor-pointer text-sm font-medium transition-colors ${
                   dayType === "weekday"
-                    ? "border-indigo-600 bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600"
-                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                    ? "border-teal-600 bg-teal-50 text-teal-700 ring-1 ring-teal-600"
+                    : "border-stone-200 bg-white text-stone-700 hover:bg-stone-50"
                 }`}
               >
                 <input
@@ -222,7 +222,7 @@ export default function RequestPage() {
                   onChange={() => setDayType("weekday")}
                   className="peer sr-only"
                 />
-                <span className="peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-indigo-600 rounded">
+                <span className="peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-teal-600 rounded">
                   Weekday (Mon - Fri)
                 </span>
               </label>
@@ -230,8 +230,8 @@ export default function RequestPage() {
               <label
                 className={`relative flex items-center justify-center p-3 rounded-lg border cursor-pointer text-sm font-medium transition-colors ${
                   dayType === "weekend"
-                    ? "border-indigo-600 bg-indigo-50 text-indigo-700 ring-1 ring-indigo-600"
-                    : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                    ? "border-teal-600 bg-teal-50 text-teal-700 ring-1 ring-teal-600"
+                    : "border-stone-200 bg-white text-stone-700 hover:bg-stone-50"
                 }`}
               >
                 <input
@@ -242,7 +242,7 @@ export default function RequestPage() {
                   onChange={() => setDayType("weekend")}
                   className="peer sr-only"
                 />
-                <span className="peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-indigo-600 rounded">
+                <span className="peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-teal-600 rounded">
                   Weekend (Sat - Sun)
                 </span>
               </label>
@@ -254,7 +254,7 @@ export default function RequestPage() {
           <div>
             <label
               htmlFor="timeSlot"
-              className="block text-sm font-medium text-slate-700 mb-1"
+              className="block text-sm font-medium text-stone-700 mb-1"
             >
               Preferred Time Slot
             </label>
@@ -262,7 +262,7 @@ export default function RequestPage() {
               id="timeSlot"
               value={timeSlot}
               onChange={(e) => setTimeSlot(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 bg-white text-slate-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+              className="w-full px-3.5 py-2.5 rounded-lg border border-stone-300 bg-white text-stone-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-sm"
             >
               {Object.entries(TIME_SLOT_LABELS).map(([value, label]) => (
                 <option key={value} value={value}>
@@ -283,7 +283,7 @@ export default function RequestPage() {
             <button
               type="submit"
               disabled={submitting || optionsState !== "ready"}
-              className="w-full inline-flex items-center justify-center py-3 px-4 rounded-lg text-white font-medium bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 shadow-sm transition-colors"
+              className="w-full inline-flex items-center justify-center py-3 px-4 rounded-lg text-white font-medium bg-teal-700 hover:bg-teal-800 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 shadow-sm transition-colors"
             >
               {optionsState === "loading"
                 ? "Loading options..."
