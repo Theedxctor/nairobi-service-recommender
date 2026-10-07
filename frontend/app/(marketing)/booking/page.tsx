@@ -12,6 +12,7 @@ import {
   RecommendRequest,
   TIME_SLOT_LABELS,
   capitalize,
+  ratingLabel,
   readRecommendation,
 } from "@/lib/recommendation";
 
@@ -126,7 +127,7 @@ function Review({ providerId }: { providerId: string | null }) {
           <div>
             <h2 className="font-heading text-xl font-semibold text-stone-900">{provider.name}</h2>
             <p className="mt-0.5 text-sm text-stone-500">
-              ★ {provider.rating.toFixed(1)} · KES {provider.hourly_rate_ksh.toLocaleString()} / hr
+              {ratingLabel(provider.rating)} · KES {provider.hourly_rate_ksh.toLocaleString()} / hr
             </p>
           </div>
           <ScoreBadge score={provider.reliability_score} />
