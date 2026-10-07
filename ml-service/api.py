@@ -14,6 +14,8 @@ Endpoints:
   POST /bookings           -> client books a provider (score recomputed server-side)
   GET  /bookings           -> a client's or a provider's bookings, newest first
   PATCH /bookings/{id}/status -> confirm / decline / cancel / complete a booking
+  GET  /providers/{id}/availability -> a provider's weekly availability slots
+  PUT  /providers/{id}/availability -> replace a provider's weekly availability
 
 Run with:  uvicorn api:app --reload --port 8000
 Docs at:   http://localhost:8000/docs
@@ -856,3 +858,128 @@ def update_booking_status(booking_id: int, req: BookingStatusUpdate):
         raise
     finally:
         conn.close()
+
+
+# ---------------------------------------------------------------------------
+# Provider availability
+# ---------------------------------------------------------------------------
+DAYS_OF_WEEK = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+_TIME_PATTERN = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+class AvailabilitySlot(BaseModel):
+    day_of_week: str
+    start_time: str
+    end_time: str
+
+    @field_validator("day_of_week")
+    @classmethod
+    def _day(cls, v):
+        day = v.strip().capitalize()
+        if day not in DAYS_OF_WEEK:
+            raise ValueError(f"day_of_week must be one of {DAYS_OF_WEEK}")
+        return day
+
+    @field_validator("start_time", "end_time")
+    @classmethod
+    def _time(cls, v):
+        v = v.strip()
+        if not _TIME_PATTERN.match(v):
+            raise ValueError("times must be HH:MM (24-hour)")
+        return v
+
+    @field_validator("end_time")
+    @classmethod
+    def _order(cls, v, info):
+        start = info.data.get("start_time")
+        if start is not None and start >= v:
+            raise ValueError("start_time must be before end_time")
+        return v
+
+
+class AvailabilityUpdate(BaseModel):
+    slots: list[AvailabilitySlot]
+
+    @field_validator("slots")
+    @classmethod
+    def _unique_days(cls, slots):
+        days = [s.day_of_week for s in slots]
+        if len(days) != len(set(days)):
+            raise ValueError("at most one slot per day_of_week")
+        return slots
+
+
+def _provider_exists(cursor, provider_id):
+    cursor.execute("SELECT 1 FROM service_providers WHERE provider_id = %s", (provider_id,))
+    return cursor.fetchone() is not None
+
+
+def _fetch_availability(cursor, provider_id):
+    cursor.execute(
+        """
+        SELECT day_of_week, to_char(start_time, 'HH24:MI'), to_char(end_time, 'HH24:MI')
+        FROM provider_availability WHERE provider_id = %s
+        """,
+        (provider_id,),
+    )
+    rows = [{"day_of_week": r[0], "start_time": r[1], "end_time": r[2]} for r in cursor.fetchall()]
+    return sorted(rows, key=lambda r: DAYS_OF_WEEK.index(r["day_of_week"]) if r["day_of_week"] in DAYS_OF_WEEK else 99)
+
+
+def _replace_availability(cursor, provider_id, slots):
+    cursor.execute("DELETE FROM provider_availability WHERE provider_id = %s", (provider_id,))
+    for s in slots:
+        cursor.execute(
+            """
+            INSERT INTO provider_availability (provider_id, day_of_week, start_time, end_time)
+            VALUES (%s, %s, %s, %s)
+            """,
+            (provider_id, s["day_of_week"], s["start_time"], s["end_time"]),
+        )
+
+
+def _refresh_availability_cache(provider_id, slots):
+    """Keep the in-memory availability table (loaded once at startup) in sync so
+    /recommend and POST /bookings see the change without a restart."""
+    current = ref.get("availability")
+    if current is None:
+        current = pd.DataFrame(columns=["provider_id", "day_of_week", "start_time", "end_time"])
+    kept = current.loc[current["provider_id"].astype(str) != str(provider_id)]
+    new_rows = pd.DataFrame(
+        [{"provider_id": provider_id, **s} for s in slots],
+        columns=["provider_id", "day_of_week", "start_time", "end_time"],
+    )
+    ref["availability"] = pd.concat([kept, new_rows], ignore_index=True)
+
+
+@app.get("/providers/{provider_id}/availability", response_model=list[AvailabilitySlot])
+def get_provider_availability(provider_id: str):
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        if not _provider_exists(cursor, provider_id):
+            raise HTTPException(404, f"Unknown provider_id: {provider_id}")
+        return _fetch_availability(cursor, provider_id)
+    finally:
+        conn.close()
+
+
+@app.put("/providers/{provider_id}/availability", response_model=list[AvailabilitySlot])
+def put_provider_availability(provider_id: str, req: AvailabilityUpdate):
+    slots = sorted(
+        (s.model_dump() for s in req.slots), key=lambda s: DAYS_OF_WEEK.index(s["day_of_week"])
+    )
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        if not _provider_exists(cursor, provider_id):
+            raise HTTPException(404, f"Unknown provider_id: {provider_id}")
+        _replace_availability(cursor, provider_id, slots)
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    _refresh_availability_cache(provider_id, slots)
+    return slots
