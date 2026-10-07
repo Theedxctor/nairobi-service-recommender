@@ -5,8 +5,8 @@ recommender. Talks to the FastAPI backend in `../ml-service/`.
 
 ## Requirements
 - Node.js 18+
-- The backend running locally (see `../LOCAL_SETUP.md`) if you want real data
-  instead of the mocked `/request` and `/results` flows.
+- The backend running locally (see `../LOCAL_SETUP.md`). Every page except the
+  landing page reads live data from it; there is no mock data.
 
 ## Getting started
 ```bash
@@ -26,11 +26,10 @@ Runs on [http://localhost:3000](http://localhost:3000) (falls back to 3001 if
 | `npm run lint` | Run `next lint` |
 
 ## Structure
-- `app/(marketing)/` — public landing page, `/request`, `/results` (shared
-  Navbar/Footer layout)
+- `app/(marketing)/` — public landing page only (shared Navbar/Footer layout)
 - `app/(app)/` — authenticated sidebar shell: `/dashboard`, `/profile`,
-  `/notifications`, `/provider/*`, `/admin/*` (role-gated via
-  `use-auth-guard.ts`)
+  `/notifications`, the client booking flow (`/request` → `/results` →
+  `/booking`), `/provider/*`, `/admin/*` (role-gated via `use-auth-guard.ts`)
 - `app/login/`, `app/register/` — top-level, no shared chrome
 - `app/globals.css`, `tailwind.config.ts` — teal/stone design system
 

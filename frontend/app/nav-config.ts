@@ -6,6 +6,8 @@ export interface NavItem {
   label: string;
   href: string;
   icon: ComponentType<{ className?: string }>;
+  // Other routes that belong to this item (e.g. later steps of a flow).
+  activeOn?: string[];
 }
 
 // Single source of truth for the sidebar: add a role's nav item here and it
@@ -13,7 +15,7 @@ export interface NavItem {
 export const NAV_CONFIG: Record<Role, NavItem[]> = {
   client: [
     { label: "Home", href: "/dashboard", icon: HomeIcon },
-    { label: "Request a Service", href: "/request", icon: ClipboardIcon },
+    { label: "Request a Service", href: "/request", icon: ClipboardIcon, activeOn: ["/results", "/booking"] },
     { label: "My Bookings", href: "/dashboard/bookings", icon: CalendarIcon },
     { label: "Notifications", href: "/notifications", icon: BellIcon },
   ],

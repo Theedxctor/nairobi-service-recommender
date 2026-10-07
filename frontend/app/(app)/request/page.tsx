@@ -88,7 +88,7 @@ export default function RequestPage() {
   if (!checked) return null;
 
   return (
-    <div className="max-w-2xl mx-auto space-y-8 px-4 py-8">
+    <div className="max-w-2xl space-y-8">
       {/* 3-Step Progress Indicator */}
       <div className="bg-white p-4 rounded-xl border border-stone-200 shadow-sm">
         <div className="flex items-center justify-between relative">
