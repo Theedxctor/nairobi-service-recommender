@@ -45,7 +45,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
       <nav className="flex-1 space-y-1 px-3 py-6">
         {items.map((item) => {
-          const active = pathname === item.href;
+          const active = pathname === item.href || (item.activeOn?.includes(pathname) ?? false);
           return (
             <Link
               key={item.href}
