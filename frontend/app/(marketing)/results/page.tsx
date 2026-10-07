@@ -7,6 +7,7 @@ import {
   RecommendationResult,
   TIME_SLOT_LABELS,
   capitalize,
+  ratingLabel,
   readRecommendation,
 } from "@/lib/recommendation";
 
@@ -34,7 +35,8 @@ export default function ResultsPage() {
       case "price":
         return list.sort((a, b) => a.hourly_rate_ksh - b.hourly_rate_ksh);
       case "rating":
-        return list.sort((a, b) => b.rating - a.rating);
+        // Unrated (new) providers sort last rather than as 0 or NaN.
+        return list.sort((a, b) => (b.rating ?? -1) - (a.rating ?? -1));
       default:
         return list;
     }
@@ -167,7 +169,7 @@ export default function ResultsPage() {
                       {provider.name}
                     </h2>
                     <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                      ★ {provider.rating.toFixed(1)}
+                      {ratingLabel(provider.rating)}
                     </span>
                   </div>
 
