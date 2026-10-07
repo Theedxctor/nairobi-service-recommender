@@ -11,6 +11,9 @@ Endpoints:
   GET  /profile            -> role-appropriate profile fields for a user_id
   GET  /notifications      -> a user's notifications, newest first
   PATCH /notifications/{id}/read -> marks one notification as read
+  POST /bookings           -> client books a provider (score recomputed server-side)
+  GET  /bookings           -> a client's or a provider's bookings, newest first
+  PATCH /bookings/{id}/status -> confirm / decline / cancel / complete a booking
 
 Run with:  uvicorn api:app --reload --port 8000
 Docs at:   http://localhost:8000/docs
@@ -171,6 +174,34 @@ class NotificationResponse(BaseModel):
     user_id: str
     message: str
     is_read: bool
+    created_at: datetime
+
+
+class BookingCreateRequest(ContextFields):
+    client_id: str = Field(..., examples=["C0501"])
+    provider_id: str = Field(..., examples=["P0023"])
+    client_area: str = Field(..., examples=["Kilimani"])
+
+
+class BookingStatusUpdate(BaseModel):
+    status: str = Field(..., examples=["confirmed"])
+    actor: str = Field(..., examples=["provider"])  # "client" or "provider"
+    actor_id: str = Field(..., examples=["P0023"])  # must own the booking
+
+
+class BookingResponse(BaseModel):
+    booking_id: int
+    client_id: str
+    client_name: Optional[str] = None
+    provider_id: str
+    provider_name: Optional[str] = None
+    provider_hourly_rate_ksh: Optional[int] = None
+    service_type: str
+    client_area: str
+    time_slot: str
+    day_type: str
+    reliability_score: Optional[float] = None
+    status: str
     created_at: datetime
 
 
@@ -339,6 +370,109 @@ def _mark_notification_read(cursor, notification_id):
     )
     row = cursor.fetchone()
     return _row_to_notification(row) if row else None
+
+
+# ---------------------------------------------------------------------------
+# Booking helpers (live app bookings -- never historical_bookings, which is
+# ML training data only)
+# ---------------------------------------------------------------------------
+# Which status changes each side may make. Anything not listed is rejected,
+# e.g. a client can't confirm their own booking and nothing leaves 'completed'.
+BOOKING_TRANSITIONS = {
+    "client": {"pending": {"cancelled"}, "confirmed": {"cancelled"}},
+    "provider": {"pending": {"confirmed", "cancelled"}, "confirmed": {"completed", "cancelled"}},
+}
+
+_BOOKING_SELECT = """
+    SELECT b.booking_id, b.client_id, c.name, b.provider_id, sp.name, sp.hourly_rate_ksh,
+           b.service_type, b.client_area, b.time_slot, b.day_type, b.reliability_score,
+           b.status, b.created_at
+    FROM bookings b
+    LEFT JOIN clients c ON b.client_id = c.client_id
+    LEFT JOIN service_providers sp ON b.provider_id = sp.provider_id
+"""
+
+
+def _row_to_booking(row):
+    return {
+        "booking_id": row[0],
+        "client_id": row[1],
+        "client_name": row[2],
+        "provider_id": row[3],
+        "provider_name": row[4],
+        "provider_hourly_rate_ksh": row[5],
+        "service_type": row[6],
+        "client_area": row[7],
+        "time_slot": row[8],
+        "day_type": row[9],
+        "reliability_score": float(row[10]) if row[10] is not None else None,
+        "status": row[11],
+        # Naive-but-UTC TIMESTAMP, same handling as notifications.
+        "created_at": row[12].replace(tzinfo=timezone.utc),
+    }
+
+
+def _client_exists(cursor, client_id):
+    cursor.execute("SELECT 1 FROM clients WHERE client_id = %s", (client_id,))
+    return cursor.fetchone() is not None
+
+
+def _insert_booking(cursor, client_id, provider_id, service_type, client_area, time_slot, day_type,
+                    reliability_score):
+    cursor.execute(
+        """
+        INSERT INTO bookings
+            (client_id, provider_id, service_type, client_area, time_slot, day_type, reliability_score)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        RETURNING booking_id
+        """,
+        (client_id, provider_id, service_type, client_area, time_slot, day_type, reliability_score),
+    )
+    return cursor.fetchone()[0]
+
+
+def _fetch_booking(cursor, booking_id):
+    cursor.execute(_BOOKING_SELECT + " WHERE b.booking_id = %s", (booking_id,))
+    row = cursor.fetchone()
+    return _row_to_booking(row) if row else None
+
+
+def _fetch_bookings(cursor, column, value):
+    # column is chosen by the endpoint ("client_id"/"provider_id"), never user input.
+    cursor.execute(_BOOKING_SELECT + f" WHERE b.{column} = %s ORDER BY b.created_at DESC", (value,))
+    return [_row_to_booking(row) for row in cursor.fetchall()]
+
+
+def _update_booking_status(cursor, booking_id, status):
+    cursor.execute("UPDATE bookings SET status = %s WHERE booking_id = %s", (status, booking_id))
+
+
+def _user_id_for(cursor, column, value):
+    """The login account linked to a client/provider, or None (most seeded
+    providers come from the CSV and have no account to notify)."""
+    cursor.execute(f"SELECT user_id FROM users WHERE {column} = %s", (value,))
+    row = cursor.fetchone()
+    return row[0] if row else None
+
+
+def _booking_label(booking):
+    slot = booking["time_slot"].replace("_", " ")
+    return f"booking #{booking['booking_id']} ({booking['service_type']}, {booking['client_area']}, {slot}, {booking['day_type']})"
+
+
+def _status_change_notice(booking, new_status, actor):
+    """(recipient column, recipient id, message) for the party who didn't act."""
+    label = _booking_label(booking)
+    if actor == "client":  # a client can only cancel
+        return ("provider_id", booking["provider_id"], f"{booking['client_name']} cancelled {label}.")
+    messages = {
+        "confirmed": f"{booking['provider_name']} confirmed your {label}.",
+        "completed": f"{booking['provider_name']} marked your {label} as completed.",
+        "cancelled": (f"{booking['provider_name']} declined your {label}."
+                      if booking["status"] == "pending"
+                      else f"{booking['provider_name']} cancelled your {label}."),
+    }
+    return ("client_id", booking["client_id"], messages[new_status])
 
 
 # ---------------------------------------------------------------------------
@@ -517,9 +651,8 @@ def register(req: RegisterRequest):
         _insert_user(cursor, user_id, email, _hash_password(req.password), role, client_id, provider_id)
 
         # Real, event-triggered notification for this signup -- not fabricated content.
-        # TODO: future notification triggers (booking confirmed, provider assigned,
-        # etc.) go here once the bookings feature exists -- do not add fake/sample
-        # notifications in the meantime.
+        # Booking events (request, confirm, decline, cancel, complete) notify
+        # from the /bookings endpoints below.
         welcome_message = (
             f"Welcome to NaiServe, {req.name.strip()}! Ready to request your first service?"
             if role == "client"
@@ -607,3 +740,119 @@ def mark_notification_read(notification_id: int):
     if notification is None:
         raise HTTPException(404, f"Unknown notification_id: {notification_id}")
     return NotificationResponse(**notification)
+
+
+@app.post("/bookings", response_model=BookingResponse, status_code=201)
+def create_booking(req: BookingCreateRequest):
+    match = ref["providers"].loc[ref["providers"].provider_id == req.provider_id]
+    if match.empty:
+        raise HTTPException(404, f"Unknown provider_id: {req.provider_id}")
+    provider_row = match.iloc[0]
+
+    # Exact match only: lookup_area() falls back to a fuzzy/first-row match,
+    # which is fine for scoring previews but not for a stored booking.
+    if req.client_area not in set(ref["areas"]["area_name"]):
+        raise HTTPException(422, f"Unknown client_area: {req.client_area}")
+
+    if not is_provider_available(req.provider_id, req.day_type, req.time_slot, ref.get("availability")):
+        raise HTTPException(409, "This provider is not available for that day and time slot.")
+
+    # Recompute rather than trusting a score sent by the browser.
+    score, _ = _score_provider(req.client_area, provider_row, req.time_slot, req.day_type)
+    score = round(max(0.0, min(1.0, score)), 3)
+    service_type = str(provider_row["service_type"])
+
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        if not _client_exists(cursor, req.client_id):
+            raise HTTPException(404, f"Unknown client_id: {req.client_id}")
+
+        booking_id = _insert_booking(
+            cursor, req.client_id, req.provider_id, service_type, req.client_area,
+            req.time_slot, req.day_type, score,
+        )
+        booking = _fetch_booking(cursor, booking_id)
+
+        provider_user = _user_id_for(cursor, "provider_id", req.provider_id)
+        if provider_user:
+            _insert_notification(
+                cursor, provider_user,
+                f"New request from {booking['client_name']}: {_booking_label(booking)}.",
+            )
+        client_user = _user_id_for(cursor, "client_id", req.client_id)
+        if client_user:
+            _insert_notification(
+                cursor, client_user,
+                f"Your {_booking_label(booking)} with {booking['provider_name']} was sent and is awaiting confirmation.",
+            )
+
+        conn.commit()
+        return BookingResponse(**booking)
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise HTTPException(400, f"Could not create booking: {e}")
+    finally:
+        conn.close()
+
+
+@app.get("/bookings", response_model=list[BookingResponse])
+def list_bookings(client_id: Optional[str] = None, provider_id: Optional[str] = None):
+    if (client_id is None) == (provider_id is None):
+        raise HTTPException(400, "Pass exactly one of client_id or provider_id.")
+    column, value = ("client_id", client_id) if client_id else ("provider_id", provider_id)
+
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        bookings = _fetch_bookings(cursor, column, value)
+    finally:
+        conn.close()
+    return [BookingResponse(**b) for b in bookings]
+
+
+@app.patch("/bookings/{booking_id}/status", response_model=BookingResponse)
+def update_booking_status(booking_id: int, req: BookingStatusUpdate):
+    actor = req.actor.strip().lower()
+    new_status = req.status.strip().lower()
+    if actor not in BOOKING_TRANSITIONS:
+        raise HTTPException(422, "actor must be 'client' or 'provider'.")
+
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        booking = _fetch_booking(cursor, booking_id)
+        if booking is None:
+            raise HTTPException(404, f"Unknown booking_id: {booking_id}")
+
+        # Guards against UI mistakes, NOT real authorisation: without session
+        # tokens anyone can claim any actor_id.
+        if booking[f"{actor}_id"] != req.actor_id:
+            raise HTTPException(403, f"This booking does not belong to {actor} {req.actor_id}.")
+
+        allowed = BOOKING_TRANSITIONS[actor].get(booking["status"], set())
+        if new_status not in allowed:
+            raise HTTPException(
+                409,
+                f"A {actor} cannot change a '{booking['status']}' booking to '{new_status}'"
+                + (f" (allowed: {sorted(allowed)})." if allowed else "."),
+            )
+
+        _update_booking_status(cursor, booking_id, new_status)
+
+        column, recipient_id, message = _status_change_notice(booking, new_status, actor)
+        recipient_user = _user_id_for(cursor, column, recipient_id)
+        if recipient_user:
+            _insert_notification(cursor, recipient_user, message)
+
+        updated = _fetch_booking(cursor, booking_id)
+        conn.commit()
+        return BookingResponse(**updated)
+    except HTTPException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
