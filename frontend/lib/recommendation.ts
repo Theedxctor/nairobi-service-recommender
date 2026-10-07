@@ -55,3 +55,20 @@ export function readRecommendation(): RecommendationResult | null {
 export function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
+
+// Shape returned by POST/GET /bookings (mirrors BookingResponse in api.py).
+export interface Booking {
+  booking_id: number;
+  client_id: string;
+  client_name: string | null;
+  provider_id: string;
+  provider_name: string | null;
+  provider_hourly_rate_ksh: number | null;
+  service_type: string;
+  client_area: string;
+  time_slot: string;
+  day_type: string;
+  reliability_score: number | null;
+  status: "pending" | "confirmed" | "completed" | "cancelled";
+  created_at: string;
+}
