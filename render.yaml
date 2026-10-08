@@ -1,0 +1,27 @@
+# Render Blueprint for the FastAPI backend (frontend is on Vercel, DB on Neon).
+# See docs/DEPLOYMENT.md. Secrets are `sync: false`: Render asks for them on
+# first deploy and they never live in git.
+services:
+  - type: web
+    name: naiserve-api
+    runtime: docker
+    region: frankfurt          # closest Render region to Nairobi; match Neon's eu-central-1
+    plan: free                 # sleeps after 15 min idle: wake it before a demo
+    dockerfilePath: ./ml-service/Dockerfile
+    dockerContext: .
+    healthCheckPath: /health
+    envVars:
+      - key: DB_HOST
+        sync: false            # e.g. ep-xxxx.eu-central-1.aws.neon.tech
+      - key: DB_PORT
+        value: "5432"
+      - key: DB_NAME
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: PGSSLMODE
+        value: require         # read by libpq/psycopg2; Neon only accepts SSL
+      - key: CORS_ORIGINS
+        sync: false            # your Vercel URL, e.g. https://naiserve.vercel.app
