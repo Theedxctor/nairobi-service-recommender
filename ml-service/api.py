@@ -20,6 +20,7 @@ Endpoints:
 Run with:  uvicorn api:app --reload --port 8000
 Docs at:   http://localhost:8000/docs
 """
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -45,10 +46,15 @@ EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
 app = FastAPI(title="Nairobi Context-Aware Provider Reliability API", version="1.0")
 
+# Comma-separated list, e.g. "https://naiserve.vercel.app,http://localhost:3000".
+# Defaults to "*" for local development. The frontend never sends cookies, so
+# credentials stay off (they are also invalid together with a "*" origin).
+CORS_ORIGINS = [o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )

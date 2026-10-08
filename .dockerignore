@@ -1,0 +1,13 @@
+**/node_modules
+**/.next
+**/.venv
+**/__pycache__
+**/.pytest_cache
+ml-service/models/*.pkl
+frontend
+notebooks
+docs
+tests
+.git
+*.md
+!data/raw/*.csv

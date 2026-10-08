@@ -1,0 +1,11 @@
+# Runtime-only subset of requirements.txt for the deployed API image (no
+# Streamlit/matplotlib/pytest). Same exact-pin policy: versions MUST match
+# requirements.txt line for line -- bump both together.
+fastapi==0.115.0
+uvicorn==0.30.6
+xgboost==2.1.1
+scikit-learn==1.5.2
+pandas==2.2.3
+joblib==1.4.2
+psycopg2-binary==2.9.9
+bcrypt==4.2.0
