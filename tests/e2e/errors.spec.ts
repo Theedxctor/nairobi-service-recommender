@@ -1,16 +1,19 @@
 import { test, expect } from "@playwright/test";
-import { createClient, login, waitForRequestForm } from "./fixtures";
+import { API, createClient, login, waitForRequestForm } from "./fixtures";
 
 test("backend unreachable shows banner and Retry recovers", async ({ page }) => {
   const c = await createClient();
   await login(page, c.email, c.password);
 
-  await page.route("**/localhost:8000/**", (r) => r.abort());
+  // Block whichever backend this run targets (local or production).
+  const apiPattern = `${API}/**`;
+  await page.route(apiPattern, (r) => r.abort());
   await page.goto("/request");
-  await expect(page.locator("[role=alert]").first()).toBeVisible();
-  await expect(page.getByText("Retry")).toBeVisible();
+  // Match the banner by its text: Next's route announcer is also a div[role=alert].
+  await expect(page.getByRole("alert").filter({ hasText: "Could not reach" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retry" })).toBeVisible();
 
-  await page.unroute("**/localhost:8000/**");
+  await page.unroute(apiPattern);
   await page.click("text=Retry");
   await waitForRequestForm(page);
   expect(await page.locator("#clientArea option").count()).toBeGreaterThan(1);
