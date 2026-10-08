@@ -69,3 +69,16 @@ It's safe to re-run — if `ADMIN_EMAIL` already has an account, it prints
 | **Proposed — XGBoost (tuned)** | **0.1417** | **0.1160** |
 
 5-fold CV RMSE: 0.1411 (± 0.0043). See `ml-service/results/` for full details.
+## End-to-end tests
+
+Playwright tests in `tests/e2e/` drive the real stack (browser -> Next.js -> FastAPI -> Postgres).
+
+**Prerequisites:** Postgres, the FastAPI service (`:8000`) and the Next.js dev server (`:3000`) must already be running (see `LOCAL_SETUP.md`). Chromium must be installed for Playwright.
+
+```bash
+cd tests/e2e
+npm install
+npm test            # or: npx playwright test
+```
+
+Override targets with `E2E_BASE_URL` / `E2E_API_URL`. Each run registers its own fresh client and provider accounts and creates bookings in the dev database; nothing is cleaned up afterwards.
