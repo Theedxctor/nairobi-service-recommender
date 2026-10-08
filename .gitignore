@@ -34,3 +34,5 @@ CLAUDE.md
 GPT.md
 AGENTS.md
 PROGRESS.md
+.neon
+.env.local
