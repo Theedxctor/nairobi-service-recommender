@@ -37,7 +37,8 @@ _AREAS_SQL = """
 _PROVIDERS_SQL = """
     SELECT sp.provider_id, sp.name, sp.service_type, na.area_name AS base_area_name,
            sp.rating, sp.completion_rate, sp.experience_years, sp.avg_response_min,
-           sp.total_jobs, sp.is_verified, sp.hourly_rate_ksh
+           sp.total_jobs, sp.is_verified, sp.hourly_rate_ksh,
+           ST_Y(sp.location) AS lat, ST_X(sp.location) AS lng
     FROM service_providers sp
     JOIN nairobi_areas na ON sp.base_area_id = na.area_id;
 """
@@ -191,8 +192,25 @@ def lookup_traffic(provider_area_id, time_slot, day_type, traffic_df):
     return row["corridor_name"], float(row["congestion_multiplier"]), float(row["avg_speed_kmh"])
 
 
-def build_feature_row(client_area, provider_row, time_slot, day_type, ref, cache=None):
+# A point farther than this from every named area centroid is outside the
+# area the traffic/road data covers (the 30 areas span Kikuyu to Athi River).
+MAX_KM_FROM_NEAREST_AREA = 8.0
+
+
+def nearest_area(lat, lng, areas_df):
+    """(area row, distance_km) of the named area whose centroid is closest to
+    an exact point. Used to label a location and to check coverage (#72)."""
+    dists = areas_df.apply(lambda a: haversine_km(lat, lng, float(a.lat), float(a.lng)), axis=1)
+    idx = dists.idxmin()
+    return areas_df.loc[idx], float(dists.loc[idx])
+
+
+def build_feature_row(client_area, provider_row, time_slot, day_type, ref, cache=None, client_latlng=None):
     """Builds the 5 model features for one client-provider-time combination.
+
+    `client_latlng`: optional exact (lat, lng) of the job. The model was
+    trained on point-to-point distances, so when given it replaces the client
+    area's centroid for distance; client_area still names the area (#72).
 
     `cache` is an optional dict shared across the providers of one request:
     area and traffic lookups depend only on their arguments and the reference
@@ -215,7 +233,8 @@ def build_feature_row(client_area, provider_row, time_slot, day_type, ref, cache
     prov_lat = provider_row["lat"] if ("lat" in provider_row and pd.notna(provider_row["lat"])) else prov_area_row.lat
     prov_lng = provider_row["lng"] if ("lng" in provider_row and pd.notna(provider_row["lng"])) else prov_area_row.lng
 
-    calc_dist = haversine_km(float(client_row.lat), float(client_row.lng), float(prov_lat), float(prov_lng))
+    client_lat, client_lng = client_latlng if client_latlng else (client_row.lat, client_row.lng)
+    calc_dist = haversine_km(float(client_lat), float(client_lng), float(prov_lat), float(prov_lng))
 
     # Avoid 0.0 km: realistic minimum intra-area travel distance is ~0.8 km
     distance_km = round(max(float(calc_dist), 0.8), 2)

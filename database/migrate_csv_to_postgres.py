@@ -134,8 +134,8 @@ def migrate_clients(conn, data_dir, dry_run=False):
         return len(df)
 
     insert_sql = """
-        INSERT INTO clients (client_id, name, area_id, phone, email)
-        VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO clients (client_id, name, area_id, phone, email, location)
+        VALUES (%s, %s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326))
         ON CONFLICT (client_id) DO NOTHING;
     """
 
@@ -151,6 +151,8 @@ def migrate_clients(conn, data_dir, dry_run=False):
                 str(row["area_id"]).strip(),
                 phone_val,
                 str(row["email"]).strip() if ("email" in row and pd.notna(row["email"])) else None,
+                float(row["lng"]),
+                float(row["lat"]),
             ),
         )
         inserted += 1
@@ -176,9 +178,10 @@ def migrate_service_providers(conn, data_dir, dry_run=False):
         INSERT INTO service_providers (
             provider_id, name, base_area_id, service_type, rating,
             completion_rate, experience_years, avg_response_min,
-            total_jobs, is_verified, hourly_rate_ksh, phone
+            total_jobs, is_verified, hourly_rate_ksh, phone, location
         )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                ST_SetSRID(ST_MakePoint(%s, %s), 4326))
         ON CONFLICT (provider_id) DO UPDATE SET phone = EXCLUDED.phone;
     """
 
@@ -204,6 +207,8 @@ def migrate_service_providers(conn, data_dir, dry_run=False):
                 str(row["is_verified"]).strip().lower() == "true",
                 int(row["hourly_rate_ksh"]) if pd.notna(row["hourly_rate_ksh"]) else None,
                 phone_val,
+                float(row["lng"]),
+                float(row["lat"]),
             ),
         )
         inserted += 1

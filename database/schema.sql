@@ -42,10 +42,14 @@ CREATE TABLE clients (
     name VARCHAR(100) NOT NULL,
     area_id VARCHAR(10) REFERENCES nairobi_areas(area_id),
     phone VARCHAR(20),
-    email VARCHAR(100)
+    email VARCHAR(100),
+    -- Exact home location (SRID 4326). area_id is kept as the nearest named
+    -- area for labels; distance uses this point (#72).
+    location GEOMETRY(Point, 4326)
 );
 
 CREATE INDEX idx_clients_area_id ON clients (area_id);
+CREATE INDEX idx_clients_location ON clients USING GIST (location);
 
 -- ---------------------------------------------------------------------------
 -- 3. service_providers
@@ -63,10 +67,14 @@ CREATE TABLE service_providers (
     total_jobs INTEGER,
     is_verified BOOLEAN DEFAULT false,
     hourly_rate_ksh INTEGER,
-    phone VARCHAR(20)
+    phone VARCHAR(20),
+    -- Exact base location (SRID 4326); the model was trained on
+    -- point-to-point distances, not area centroids (#72).
+    location GEOMETRY(Point, 4326)
 );
 
 CREATE INDEX idx_service_providers_base_area_id ON service_providers (base_area_id);
+CREATE INDEX idx_service_providers_location ON service_providers USING GIST (location);
 
 -- ---------------------------------------------------------------------------
 -- 4. traffic_patterns
@@ -179,6 +187,9 @@ CREATE TABLE bookings (
     time_slot VARCHAR(20) NOT NULL,
     day_type VARCHAR(20) NOT NULL,
     reliability_score DECIMAL(4,3),
+    -- Exact job location the score was computed for (NULL = area centroid used)
+    client_lat DECIMAL(9,6),
+    client_lng DECIMAL(9,6),
     status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'completed', 'cancelled')),
     created_at TIMESTAMP DEFAULT NOW()
 );
