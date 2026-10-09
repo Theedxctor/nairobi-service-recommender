@@ -246,7 +246,7 @@ TIME_SLOT_RANGES = {
     "morning_rush": ("07:00", "09:00"),
     "midday": ("11:00", "14:00"),
     "evening_rush": ("16:00", "19:00"),
-    "night": ("21:00", "05:00"),
+    "night": ("21:00", "05:00"),  # in the training data; not offered by the API (#67)
     "weekend_day": ("09:00", "18:00"),
 }
 

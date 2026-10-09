@@ -6,12 +6,12 @@ import { readAuth, useAuthGuard } from "../../../use-auth-guard";
 
 const DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
 
-// Mirrors TIME_SLOT_RANGES in ml-service/feature_engineering.py.
+// Mirrors the bookable slots: TIME_SLOTS in ml-service/api.py, with ranges
+// from TIME_SLOT_RANGES in ml-service/feature_engineering.py.
 const TIME_SLOTS = [
   { label: "Morning rush", range: "07:00–09:00" },
   { label: "Midday", range: "11:00–14:00" },
   { label: "Evening rush", range: "16:00–19:00" },
-  { label: "Night", range: "21:00–05:00" },
   { label: "Weekend day", range: "09:00–18:00" },
 ];
 
