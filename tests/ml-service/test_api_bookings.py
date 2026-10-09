@@ -92,11 +92,19 @@ def test_create_booking_normalises_labels(client, db):
     ({"provider_id": "P9999"}, 404),
     ({"client_id": "C9999"}, 404),
     ({"client_area": "Atlantis"}, 422),
-    ({"time_slot": "night"}, 409),  # no provider in the dataset works nights
+    ({"time_slot": "night"}, 422),  # no longer offered (#67)
 ])
 def test_create_booking_rejections(client, db, override, status):
     res = client.post("/bookings", json={**CREATE_BODY, **override})
     assert res.status_code == status
+    assert db.inserted is None
+    assert db.notifications == []
+
+
+def test_create_booking_unavailable_provider_returns_409(client, db, monkeypatch):
+    monkeypatch.setattr(api, "is_provider_available", lambda *a, **k: False)
+    res = client.post("/bookings", json=CREATE_BODY)
+    assert res.status_code == 409
     assert db.inserted is None
     assert db.notifications == []
 

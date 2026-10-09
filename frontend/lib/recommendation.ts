@@ -30,7 +30,6 @@ export const TIME_SLOT_LABELS: Record<string, string> = {
   morning_rush: "Morning Rush (07:00 - 09:00)",
   midday: "Midday (11:00 - 14:00)",
   evening_rush: "Evening Rush (16:00 - 19:00)",
-  night: "Night (21:00 - 05:00)",
   weekend_day: "Weekend Day (Daytime)",
 };
 

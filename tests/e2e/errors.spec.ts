@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, request } from "@playwright/test";
 import { API, createClient, login, waitForRequestForm } from "./fixtures";
 
 test("backend unreachable shows banner and Retry recovers", async ({ page }) => {
@@ -19,14 +19,20 @@ test("backend unreachable shows banner and Retry recovers", async ({ page }) => 
   expect(await page.locator("#clientArea option").count()).toBeGreaterThan(1);
 });
 
-test("night slot shows no-provider message and stays on /request", async ({ page }) => {
+test("night is not offered: absent from the form and rejected by the API (#67)", async ({ page }) => {
   const c = await createClient();
   await login(page, c.email, c.password);
   await page.goto("/request");
   await waitForRequestForm(page);
-  await page.selectOption("#serviceType", "plumber");
-  await page.selectOption("#timeSlot", "night");
-  await page.click("button[type=submit]");
-  await expect(page.locator("p[role=alert]")).toContainText("No plumber is available");
-  expect(page.url()).toContain("/request");
+  const slots = await page.locator("#timeSlot option").evaluateAll((os) =>
+    os.map((o) => (o as HTMLOptionElement).value),
+  );
+  expect(slots).toEqual(["morning_rush", "midday", "evening_rush", "weekend_day"]);
+
+  const api = await request.newContext();
+  const res = await api.post(`${API}/recommend`, {
+    data: { client_area: "Kilimani", service_type: "plumber", time_slot: "night", day_type: "weekday" },
+  });
+  expect(res.status()).toBe(422);
+  await api.dispose();
 });
