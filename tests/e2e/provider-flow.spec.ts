@@ -1,12 +1,14 @@
 import { test, expect, request } from "@playwright/test";
-import { API, RECOMMEND_BODY, createClient, createProvider, login } from "./fixtures";
+import { API, RECOMMEND_BODY, createClient, createProvider, login, retireProvider } from "./fixtures";
 
 test("provider accepts and completes a booking; notifications and cold-start explanation", async ({ browser }) => {
   const client = await createClient();
   const provider = await createProvider();
+  try {
   const api = await request.newContext();
 
-  // A brand-new provider has no history so ranks below the UI top 10 (issue #61): book via API.
+  // Book via the API so this spec targets exactly our provider (the UI path for
+  // new providers is covered in new-providers.spec.ts).
   const res = await api.post(`${API}/bookings`, {
     data: { client_id: client.clientId, provider_id: provider.providerId, ...RECOMMEND_BODY },
   });
@@ -39,4 +41,7 @@ test("provider accepts and completes a booking; notifications and cold-start exp
   expect(pred.ok()).toBeTruthy();
   expect((await pred.json()).explanation).toContain("new provider with no job history");
   await api.dispose();
+  } finally {
+    await retireProvider(provider);
+  }
 });

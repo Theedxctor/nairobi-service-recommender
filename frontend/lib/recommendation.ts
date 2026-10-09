@@ -7,6 +7,7 @@ export interface RankedProvider {
   distance_km: number;
   hourly_rate_ksh: number;
   rating: number | null; // null for new providers with no completed jobs
+  is_new?: boolean; // no job history yet: score uses the platform-median prior
   explanation: string;
 }
 
@@ -23,6 +24,8 @@ export interface RecommendRequest {
 export interface RecommendationResult {
   request: RecommendRequest;
   providers: RankedProvider[];
+  // "New on NaiServe": no-history providers outside the top N (#61)
+  newProviders?: RankedProvider[];
 }
 
 // Display labels for the API's canonical time_slot values.

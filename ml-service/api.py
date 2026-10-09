@@ -6,6 +6,7 @@ Endpoints:
   GET  /health
   POST /predict            -> reliability score for ONE client-provider-time combo
   POST /recommend          -> ranked list of ALL matching providers for a booking request
+  POST /recommend/new-providers -> up to N new (no-history) providers not in the top N
   POST /auth/register      -> create a client or provider account
   POST /auth/login         -> verify credentials, return user_id/role/client_id or provider_id
   GET  /profile            -> role-appropriate profile fields for a user_id
@@ -122,6 +123,13 @@ class RecommendRequest(ContextFields):
     top_n: Optional[int] = 5
 
 
+class NewProvidersRequest(RecommendRequest):
+    # top_n is the size of the main ranked list the client is showing, so
+    # providers already in it are not repeated; limit caps this section.
+    top_n: Optional[int] = 10
+    limit: int = Field(2, ge=1, le=5)
+
+
 class RankedProvider(BaseModel):
     provider_id: str
     name: str
@@ -130,6 +138,7 @@ class RankedProvider(BaseModel):
     distance_km: float
     hourly_rate_ksh: int
     rating: Optional[float] = None  # None until a new provider has been rated
+    is_new: bool = False  # no job history yet; score uses the cold-start prior (#52)
     explanation: str
 
 
@@ -595,8 +604,9 @@ def predict(req: PredictRequest):
     )
 
 
-@app.post("/recommend", response_model=list[RankedProvider])
-def recommend(req: RecommendRequest):
+def _rank_available(req):
+    """Every available provider for the request, scored and sorted best-first.
+    Raises 404 if none offer the service or none are available."""
     service_target = req.service_type.strip().lower()
     candidates = ref["providers"].loc[
         ref["providers"].service_type.astype(str).str.strip().str.lower() == service_target
@@ -637,10 +647,34 @@ def recommend(req: RecommendRequest):
             hourly_rate_ksh=int(provider_row["hourly_rate_ksh"]),
             rating=None if pd.isna(provider_row["rating"]) else float(provider_row["rating"]),
             explanation=_explain(features, provider_row),
+            is_new=not features["provider_has_history"],
         ))
 
     ranked.sort(key=lambda r: r.reliability_score, reverse=True)
-    return ranked[: req.top_n]
+    return ranked
+
+
+@app.post("/recommend", response_model=list[RankedProvider])
+def recommend(req: RecommendRequest):
+    return _rank_available(req)[: req.top_n]
+
+
+@app.post("/recommend/new-providers", response_model=list[RankedProvider])
+def recommend_new_providers(req: NewProvidersRequest):
+    """Up to `limit` available providers with no job history, for a separate
+    "New on NaiServe" section under the main list (#61). With a median
+    cold-start prior they rank ~18th-26th and would otherwise never be shown,
+    so they could never earn the history that ranks them properly. They are
+    listed separately -- not inserted into the ranking -- and the main list's
+    scores and order are unchanged."""
+    try:
+        ranked = _rank_available(req)
+    except HTTPException as e:
+        if e.status_code == 404:
+            return []  # nothing available at all; the main list reports that
+        raise
+    shown = {r.provider_id for r in ranked[: req.top_n]}
+    return [r for r in ranked if r.is_new and r.provider_id not in shown][: req.limit]
 
 
 @app.post("/auth/register", response_model=RegisterResponse)
