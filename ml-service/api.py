@@ -71,9 +71,12 @@ ref = load_reference_data()
 # ---------------------------------------------------------------------------
 # Schemas
 # ---------------------------------------------------------------------------
-# Canonical values the model was trained on. Anything else used to fall through
-# to a default congestion lookup and return a confidently wrong score (#42).
-TIME_SLOTS = ["morning_rush", "midday", "evening_rush", "night", "weekend_day"]
+# Slots the product offers. Anything else used to fall through to a default
+# congestion lookup and return a confidently wrong score (#42). "night" was
+# removed (#67): no provider in the dataset works nights, so every night
+# request came back empty. The model still knows the category (it is in the
+# training data); it is just not bookable.
+TIME_SLOTS = ["morning_rush", "midday", "evening_rush", "weekend_day"]
 DAY_TYPES = ["weekday", "weekend"]
 
 
