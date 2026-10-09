@@ -3,7 +3,10 @@
 import { useEffect, useState } from "react";
 import { useAuthGuard } from "../../use-auth-guard";
 
-import { API_BASE_URL } from "@/lib/api";
+import { API_BASE_URL, NETWORK_ERROR_MESSAGE, apiErrorMessage } from "@/lib/api";
+import type { LocateResult } from "@/lib/location";
+import { LocationField } from "../../location-field";
+import type { LatLng } from "../../location-picker";
 
 interface Profile {
   user_id: string;
@@ -19,6 +22,8 @@ interface Profile {
   completion_rate?: number;
   experience_years?: number;
   is_verified?: boolean;
+  lat?: number; // saved home (client) / base (provider) location (#73)
+  lng?: number;
   member_since?: string;
 }
 
@@ -126,7 +131,121 @@ export default function ProfilePage() {
           </dl>
         </div>
       )}
+
+      {profile && profile.role !== "admin" && (
+        <SavedLocation profile={profile} onSaved={setProfile} />
+      )}
     </div>
+  );
+}
+
+function SavedLocation({ profile, onSaved }: { profile: Profile; onSaved: (p: Profile) => void }) {
+  const isClient = profile.role === "client";
+  const areaName = isClient ? profile.area_name : profile.base_area_name;
+  const hasPoint = typeof profile.lat === "number" && typeof profile.lng === "number";
+  const [editing, setEditing] = useState(false);
+  const [point, setPoint] = useState<LatLng | null>(
+    hasPoint ? { lat: profile.lat as number, lng: profile.lng as number } : null,
+  );
+  const [located, setLocated] = useState<LocateResult | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const save = async () => {
+    if (!point || !located?.covered) {
+      setError("Set a pin inside the area NaiServe covers first.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/profile/location?user_id=${encodeURIComponent(profile.user_id)}`,
+        { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ lat: point.lat, lng: point.lng }) },
+      );
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setError(apiErrorMessage(data));
+        return;
+      }
+      onSaved(data as Profile);
+      setEditing(false);
+      setSaved(true);
+    } catch {
+      setError(NETWORK_ERROR_MESSAGE);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section className="rounded-lg border border-stone-200 bg-white p-8" aria-labelledby="saved-location-heading">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 id="saved-location-heading" className="font-heading text-xl font-semibold text-stone-900">
+            {isClient ? "Home location" : "Base location"}
+          </h2>
+          {hasPoint ? (
+            <p className="mt-1 text-sm text-stone-600" data-testid="saved-location">
+              Exact location saved, near {areaName} ({(profile.lat as number).toFixed(5)},{" "}
+              {(profile.lng as number).toFixed(5)}).
+            </p>
+          ) : (
+            <p className="mt-1 text-sm text-stone-600" data-testid="saved-location">
+              No exact location saved. {isClient ? "Recommendations" : "Your distance to clients"} currently
+              use the centre of {areaName ?? "your area"}, which can be a kilometre or more off.
+            </p>
+          )}
+          {saved && <p className="mt-1 text-sm text-teal-700">Location saved.</p>}
+        </div>
+        {!editing && (
+          <button
+            type="button"
+            onClick={() => {
+              setEditing(true);
+              setSaved(false);
+            }}
+            className="shrink-0 rounded-md border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+          >
+            {hasPoint ? "Update location" : "Set exact location"}
+          </button>
+        )}
+      </div>
+
+      {editing && (
+        <div className="mt-6 space-y-4">
+          <LocationField
+            label={isClient ? "Your home location" : "Your base location"}
+            point={point}
+            onPointChange={setPoint}
+            onLocated={setLocated}
+          />
+          {error && (
+            <p role="alert" className="text-sm text-red-600">
+              {error}
+            </p>
+          )}
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={save}
+              disabled={saving}
+              className="rounded-md bg-teal-700 px-4 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
+            >
+              {saving ? "Saving..." : "Save location"}
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditing(false)}
+              className="rounded-md border border-stone-300 px-4 py-2 text-sm font-semibold text-stone-700 hover:bg-stone-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
