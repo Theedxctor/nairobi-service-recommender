@@ -14,7 +14,9 @@ export interface RankedProvider {
 // Body sent to POST /recommend. Values must be the API's canonical ones
 // (GET /time_slots, /day_types, /service_types), not display labels.
 export interface RecommendRequest {
-  client_area: string;
+  client_area: string; // area name; derived from the exact point when one is sent
+  client_lat?: number; // exact job location (#72/#73)
+  client_lng?: number;
   service_type: string;
   time_slot: string;
   day_type: string;

@@ -2,7 +2,10 @@
 
 import React, { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { useAuthGuard } from "../../use-auth-guard";
+import { readAuth, useAuthGuard } from "../../use-auth-guard";
+import { LocationField } from "../../location-field";
+import type { LatLng } from "../../location-picker";
+import type { LocateResult } from "@/lib/location";
 import { API_BASE_URL, NETWORK_ERROR_MESSAGE, apiErrorMessage } from "@/lib/api";
 import {
   RankedProvider,
@@ -19,6 +22,12 @@ export default function RequestPage() {
   const [serviceTypes, setServiceTypes] = useState<string[]>([]);
   const [serviceType, setServiceType] = useState("plumber");
   const [clientArea, setClientArea] = useState("Kilimani");
+  // Where the job is (#73): the saved home location, another exact point,
+  // or a named area (fallback; also the default for accounts with no saved point).
+  const [home, setHome] = useState<{ lat: number; lng: number; area: string } | null>(null);
+  const [locationMode, setLocationMode] = useState<"home" | "point" | "area">("area");
+  const [point, setPoint] = useState<LatLng | null>(null);
+  const [pointArea, setPointArea] = useState<LocateResult | null>(null);
   const [dayType, setDayType] = useState("weekday");
   const [timeSlot, setTimeSlot] = useState("morning_rush");
   const [optionsState, setOptionsState] = useState<"loading" | "ready" | "failed">("loading");
@@ -45,13 +54,39 @@ export default function RequestPage() {
 
   useEffect(loadOptions, [loadOptions]);
 
+  // Saved home location from the profile, if the client shared one.
+  useEffect(() => {
+    const auth = readAuth();
+    if (!auth?.user_id) return;
+    fetch(`${API_BASE_URL}/profile?user_id=${encodeURIComponent(auth.user_id)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((p) => {
+        if (p && typeof p.lat === "number" && typeof p.lng === "number") {
+          setHome({ lat: p.lat, lng: p.lng, area: p.area_name ?? "" });
+          setLocationMode("home");
+        }
+      })
+      .catch(() => {});
+  }, []);
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setSubmitting(true);
 
+    let where: Pick<RecommendRequest, "client_area" | "client_lat" | "client_lng"> = { client_area: clientArea };
+    if (locationMode === "home" && home) {
+      where = { client_area: home.area, client_lat: home.lat, client_lng: home.lng };
+    } else if (locationMode === "point") {
+      if (!point || !pointArea?.covered) {
+        setError("Set a location inside the area NaiServe covers, or choose an area.");
+        setSubmitting(false);
+        return;
+      }
+      where = { client_area: pointArea.area_name, client_lat: point.lat, client_lng: point.lng };
+    }
     const body: RecommendRequest = {
-      client_area: clientArea,
+      ...where,
       service_type: serviceType,
       time_slot: timeSlot,
       day_type: dayType,
@@ -180,13 +215,59 @@ export default function RequestPage() {
             </select>
           </div>
 
-          {/* Client Area */}
-          <div>
+          {/* Where is the job? (#73) */}
+          <fieldset className="space-y-2">
+            <legend className="block text-sm font-medium text-stone-700 mb-1">Where is the job?</legend>
+            {home && (
+              <label className="flex items-center gap-2 text-sm text-stone-700">
+                <input
+                  type="radio"
+                  name="locationMode"
+                  checked={locationMode === "home"}
+                  onChange={() => setLocationMode("home")}
+                  className="accent-teal-700"
+                />
+                My saved home location{home.area ? ` (near ${home.area})` : ""}
+              </label>
+            )}
+            <label className="flex items-center gap-2 text-sm text-stone-700">
+              <input
+                type="radio"
+                name="locationMode"
+                checked={locationMode === "point"}
+                onChange={() => setLocationMode("point")}
+                className="accent-teal-700"
+              />
+              My current location or another spot
+            </label>
+            <label className="flex items-center gap-2 text-sm text-stone-700">
+              <input
+                type="radio"
+                name="locationMode"
+                checked={locationMode === "area"}
+                onChange={() => setLocationMode("area")}
+                className="accent-teal-700"
+              />
+              Choose an area
+            </label>
+          </fieldset>
+
+          {locationMode === "point" && (
+            <LocationField
+              label="Job location"
+              point={point}
+              onPointChange={setPoint}
+              onLocated={setPointArea}
+            />
+          )}
+
+          {/* Client Area (fallback) */}
+          <div className={locationMode === "area" ? "" : "hidden"}>
             <label
               htmlFor="clientArea"
               className="block text-sm font-medium text-stone-700 mb-1"
             >
-              Client Area
+              Area
             </label>
             <select
               id="clientArea"
