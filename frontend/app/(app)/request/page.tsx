@@ -76,15 +76,9 @@ export default function RequestPage() {
         setError(apiErrorMessage(data));
         return;
       }
-      // Optional "New on NaiServe" section: never block the main results on it.
-      const newProviders: RankedProvider[] = await fetch(`${API_BASE_URL}/recommend/new-providers`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...body, limit: 2 }),
-      })
-        .then((r) => (r.ok ? r.json() : []))
-        .catch(() => []);
-      saveRecommendation({ request: body, providers: data as RankedProvider[], newProviders });
+      // The "New on NaiServe" section is loaded by /results after the main
+      // list is on screen, so it never delays the results (#70).
+      saveRecommendation({ request: body, providers: data as RankedProvider[] });
       router.push("/results");
     } catch {
       setError(NETWORK_ERROR_MESSAGE);

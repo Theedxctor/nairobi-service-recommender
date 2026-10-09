@@ -3,6 +3,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useAuthGuard } from "../../use-auth-guard";
+import { API_BASE_URL } from "@/lib/api";
 import {
   RankedProvider,
   RecommendationResult,
@@ -10,6 +11,7 @@ import {
   capitalize,
   ratingLabel,
   readRecommendation,
+  saveRecommendation,
 } from "@/lib/recommendation";
 
 type SortKey = "reliability" | "distance" | "price" | "rating";
@@ -22,8 +24,27 @@ export default function ResultsPage() {
 
   // Written by /request after a successful POST /recommend.
   useEffect(() => {
-    setResult(readRecommendation());
+    const saved = readRecommendation();
+    setResult(saved);
     setLoaded(true);
+
+    // Load the optional "New on NaiServe" section once per search, after the
+    // ranked list is shown, and keep it with the result so /booking can find
+    // a provider selected from it. A failure just means no section.
+    if (saved && saved.newProviders === undefined) {
+      fetch(`${API_BASE_URL}/recommend/new-providers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...saved.request, limit: 2 }),
+      })
+        .then((r) => (r.ok ? r.json() : []))
+        .catch(() => [])
+        .then((newProviders: RankedProvider[]) => {
+          const updated = { ...saved, newProviders };
+          saveRecommendation(updated);
+          setResult(updated);
+        });
+    }
   }, []);
 
   const sortedProviders = useMemo(() => {
