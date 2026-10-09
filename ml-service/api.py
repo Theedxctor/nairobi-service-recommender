@@ -7,6 +7,8 @@ Endpoints:
   POST /predict            -> reliability score for ONE client-provider-time combo
   POST /recommend          -> ranked list of ALL matching providers for a booking request
   POST /recommend/new-providers -> up to N new (no-history) providers not in the top N
+  GET  /locate             -> nearest named area + coverage for an exact lat/lng
+  PUT  /profile/location   -> save a client's home / provider's base location
   POST /auth/register      -> create a client or provider account
   POST /auth/login         -> verify credentials, return user_id/role/client_id or provider_id
   GET  /profile            -> role-appropriate profile fields for a user_id
@@ -27,7 +29,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional
 import joblib
 import pandas as pd
@@ -36,6 +38,8 @@ import psycopg2
 from feature_engineering import (
     load_reference_data,
     build_feature_row,
+    nearest_area,
+    MAX_KM_FROM_NEAREST_AREA,
     MODEL_FEATURES,
     is_provider_available,
     _get_db_connection,
@@ -103,8 +107,24 @@ class ContextFields(BaseModel):
     def _check_day_type(cls, v):
         return _canonical(v, DAY_TYPES, "day_type")
 
-class PredictRequest(ContextFields):
-    client_area: str = Field(..., examples=["Kilimani"])
+class LocationFields(BaseModel):
+    """Exact job location (#72). When sent, it is used for distance (the model
+    was trained on point-to-point distances) and client_area is derived from
+    it; otherwise client_area's centroid is used, as before."""
+    client_area: Optional[str] = Field(None, examples=["Kilimani"])
+    client_lat: Optional[float] = Field(None, ge=-90, le=90, examples=[-1.2921])
+    client_lng: Optional[float] = Field(None, ge=-180, le=180, examples=[36.7801])
+
+    @model_validator(mode="after")
+    def _location_given(self):
+        if (self.client_lat is None) != (self.client_lng is None):
+            raise ValueError("Send both client_lat and client_lng, or neither.")
+        if self.client_lat is None and not self.client_area:
+            raise ValueError("Send client_area, or client_lat and client_lng.")
+        return self
+
+
+class PredictRequest(ContextFields, LocationFields):
     provider_id: str = Field(..., examples=["P0001"])
 
 
@@ -117,8 +137,7 @@ class PredictResponse(BaseModel):
     explanation: str
 
 
-class RecommendRequest(ContextFields):
-    client_area: str = Field(..., examples=["Kilimani"])
+class RecommendRequest(ContextFields, LocationFields):
     service_type: str = Field(..., examples=["plumber"])
     top_n: Optional[int] = 5
 
@@ -148,8 +167,11 @@ class RegisterRequest(BaseModel):
     role: str = Field(..., examples=["client", "provider"])
     name: str
     phone: str
-    area_id: Optional[str] = None  # required when role == "client"
-    base_area_id: Optional[str] = None  # required when role == "provider"
+    area_id: Optional[str] = None  # client: required unless lat/lng given
+    base_area_id: Optional[str] = None  # provider: required unless lat/lng given
+    # Exact home (client) or base (provider) location; the area is derived from it (#72)
+    lat: Optional[float] = Field(None, ge=-90, le=90)
+    lng: Optional[float] = Field(None, ge=-180, le=180)
     service_type: Optional[str] = None  # required when role == "provider"
     hourly_rate_ksh: Optional[int] = None  # required when role == "provider"
 
@@ -186,6 +208,8 @@ class ProfileResponse(BaseModel):
     completion_rate: Optional[float] = None  # provider only
     experience_years: Optional[float] = None  # provider only
     is_verified: Optional[bool] = None  # provider only
+    lat: Optional[float] = None  # saved home (client) / base (provider) location
+    lng: Optional[float] = None
     member_since: Optional[datetime] = None
 
 
@@ -197,10 +221,9 @@ class NotificationResponse(BaseModel):
     created_at: datetime
 
 
-class BookingCreateRequest(ContextFields):
+class BookingCreateRequest(ContextFields, LocationFields):
     client_id: str = Field(..., examples=["C0501"])
     provider_id: str = Field(..., examples=["P0023"])
-    client_area: str = Field(..., examples=["Kilimani"])
 
 
 class BookingStatusUpdate(BaseModel):
@@ -221,8 +244,22 @@ class BookingResponse(BaseModel):
     time_slot: str
     day_type: str
     reliability_score: Optional[float] = None
+    client_lat: Optional[float] = None  # exact job location, if the client shared one
+    client_lng: Optional[float] = None
     status: str
     created_at: datetime
+
+
+class LocateResponse(BaseModel):
+    area_id: str
+    area_name: str
+    distance_km: float  # from the nearest named area's centroid
+    covered: bool
+
+
+class LocationUpdate(BaseModel):
+    lat: float = Field(..., ge=-90, le=90)
+    lng: float = Field(..., ge=-180, le=180)
 
 
 # ---------------------------------------------------------------------------
@@ -265,21 +302,27 @@ def _fetch_user_by_email(cursor, email):
     }
 
 
-def _insert_client(cursor, client_id, name, area_id, phone, email):
+def _insert_client(cursor, client_id, name, area_id, phone, email, lat=None, lng=None):
+    # ST_MakePoint(NULL, NULL) is NULL, so no location is stored when none was shared.
     cursor.execute(
-        "INSERT INTO clients (client_id, name, area_id, phone, email) VALUES (%s, %s, %s, %s, %s)",
-        (client_id, name, area_id, phone, email),
+        """
+        INSERT INTO clients (client_id, name, area_id, phone, email, location)
+        VALUES (%s, %s, %s, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326))
+        """,
+        (client_id, name, area_id, phone, email, lng, lat),
     )
 
 
-def _insert_provider(cursor, provider_id, name, base_area_id, service_type, hourly_rate_ksh, phone):
+def _insert_provider(cursor, provider_id, name, base_area_id, service_type, hourly_rate_ksh, phone,
+                     lat=None, lng=None):
     cursor.execute(
         """
         INSERT INTO service_providers
-            (provider_id, name, base_area_id, service_type, is_verified, total_jobs, hourly_rate_ksh, phone)
-        VALUES (%s, %s, %s, %s, false, 0, %s, %s)
+            (provider_id, name, base_area_id, service_type, is_verified, total_jobs, hourly_rate_ksh, phone,
+             location)
+        VALUES (%s, %s, %s, %s, false, 0, %s, %s, ST_SetSRID(ST_MakePoint(%s, %s), 4326))
         """,
-        (provider_id, name, base_area_id, service_type, hourly_rate_ksh, phone),
+        (provider_id, name, base_area_id, service_type, hourly_rate_ksh, phone, lng, lat),
     )
 
 
@@ -293,13 +336,13 @@ def _insert_user(cursor, user_id, email, password_hash, role, client_id, provide
     )
 
 
-def _add_provider_to_cache(provider_id, req):
+def _add_provider_to_cache(provider_id, req, base_area_id=None, lat=None, lng=None):
     """ref['providers'] is loaded once at startup; without this a provider who
     just registered is "unknown" to /predict, /recommend and /bookings until
     the API restarts (#52). Columns mirror _PROVIDERS_SQL; history fields stay
     empty, so scoring uses the cold-start completion rate."""
     areas = ref["areas"]
-    match = areas.loc[areas["area_id"] == req.base_area_id, "area_name"]
+    match = areas.loc[areas["area_id"] == (base_area_id or req.base_area_id), "area_name"]
     new_row = pd.DataFrame([{
         "provider_id": provider_id,
         "name": req.name.strip(),
@@ -312,6 +355,8 @@ def _add_provider_to_cache(provider_id, req):
         "total_jobs": 0,
         "is_verified": False,
         "hourly_rate_ksh": req.hourly_rate_ksh,
+        "lat": lat,
+        "lng": lng,
     }])
     ref["providers"] = pd.concat([ref["providers"], new_row], ignore_index=True)
 
@@ -327,7 +372,8 @@ def _fetch_profile(cursor, user_id):
                c.name, c.phone, na_c.area_name,
                sp.name, sp.phone, na_p.area_name, sp.service_type,
                sp.hourly_rate_ksh, sp.rating, sp.completion_rate,
-               sp.experience_years, sp.is_verified
+               sp.experience_years, sp.is_verified,
+               ST_Y(COALESCE(c.location, sp.location)), ST_X(COALESCE(c.location, sp.location))
         FROM users u
         LEFT JOIN clients c ON u.client_id = c.client_id
         LEFT JOIN nairobi_areas na_c ON c.area_id = na_c.area_id
@@ -357,6 +403,8 @@ def _fetch_profile(cursor, user_id):
         "completion_rate": row[13],
         "experience_years": row[14],
         "is_verified": row[15],
+        "lat": row[16],
+        "lng": row[17],
     }
 
 
@@ -429,7 +477,7 @@ BOOKING_TRANSITIONS = {
 _BOOKING_SELECT = """
     SELECT b.booking_id, b.client_id, c.name, b.provider_id, sp.name, sp.hourly_rate_ksh,
            b.service_type, b.client_area, b.time_slot, b.day_type, b.reliability_score,
-           b.status, b.created_at
+           b.status, b.created_at, b.client_lat, b.client_lng
     FROM bookings b
     LEFT JOIN clients c ON b.client_id = c.client_id
     LEFT JOIN service_providers sp ON b.provider_id = sp.provider_id
@@ -452,6 +500,8 @@ def _row_to_booking(row):
         "status": row[11],
         # Naive-but-UTC TIMESTAMP, same handling as notifications.
         "created_at": row[12].replace(tzinfo=timezone.utc),
+        "client_lat": float(row[13]) if row[13] is not None else None,
+        "client_lng": float(row[14]) if row[14] is not None else None,
     }
 
 
@@ -461,15 +511,17 @@ def _client_exists(cursor, client_id):
 
 
 def _insert_booking(cursor, client_id, provider_id, service_type, client_area, time_slot, day_type,
-                    reliability_score):
+                    reliability_score, client_lat=None, client_lng=None):
     cursor.execute(
         """
         INSERT INTO bookings
-            (client_id, provider_id, service_type, client_area, time_slot, day_type, reliability_score)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+            (client_id, provider_id, service_type, client_area, time_slot, day_type, reliability_score,
+             client_lat, client_lng)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING booking_id
         """,
-        (client_id, provider_id, service_type, client_area, time_slot, day_type, reliability_score),
+        (client_id, provider_id, service_type, client_area, time_slot, day_type, reliability_score,
+         client_lat, client_lng),
     )
     return cursor.fetchone()[0]
 
@@ -521,8 +573,56 @@ def _status_change_notice(booking, new_status, actor):
 # ---------------------------------------------------------------------------
 # Core scoring logic
 # ---------------------------------------------------------------------------
-def _score_provider(client_area, provider_row, time_slot, day_type):
-    features = build_feature_row(client_area, provider_row, time_slot, day_type, ref)
+def _resolve_location(client_area, lat, lng):
+    """(area_name, (lat, lng) or None) for a request. An exact point is checked
+    against coverage and labelled with its nearest named area (#72)."""
+    if lat is None:
+        return client_area, None
+    area_row, km = nearest_area(lat, lng, ref["areas"])
+    if km > MAX_KM_FROM_NEAREST_AREA:
+        raise HTTPException(
+            422,
+            f"That location is outside the area NaiServe covers: the nearest covered area, "
+            f"{area_row.area_name}, is {km:.1f} km away.",
+        )
+    return str(area_row.area_name), (float(lat), float(lng))
+
+
+def _area_id_for(area_name):
+    areas = ref["areas"]
+    return str(areas.loc[areas["area_name"] == area_name, "area_id"].iloc[0])
+
+
+def _user_entity(cursor, user_id):
+    cursor.execute("SELECT role, client_id, provider_id FROM users WHERE user_id = %s", (user_id,))
+    return cursor.fetchone()
+
+
+def _set_saved_location(cursor, role, entity_id, area_id, lat, lng):
+    if role == "client":
+        cursor.execute(
+            "UPDATE clients SET location = ST_SetSRID(ST_MakePoint(%s, %s), 4326), area_id = %s "
+            "WHERE client_id = %s",
+            (lng, lat, area_id, entity_id),
+        )
+    else:
+        cursor.execute(
+            "UPDATE service_providers SET location = ST_SetSRID(ST_MakePoint(%s, %s), 4326), base_area_id = %s "
+            "WHERE provider_id = %s",
+            (lng, lat, area_id, entity_id),
+        )
+
+
+def _update_provider_cache_location(provider_id, area_name, lat, lng):
+    providers = ref["providers"]
+    mask = providers["provider_id"] == provider_id
+    providers.loc[mask, "lat"] = lat
+    providers.loc[mask, "lng"] = lng
+    providers.loc[mask, "base_area_name"] = area_name
+
+
+def _score_provider(client_area, provider_row, time_slot, day_type, client_latlng=None):
+    features = build_feature_row(client_area, provider_row, time_slot, day_type, ref, client_latlng=client_latlng)
     X = pd.DataFrame([{k: features[k] for k in MODEL_FEATURES}])
     score = float(pipeline.predict(X)[0])
     return score, features
@@ -589,8 +689,9 @@ def predict(req: PredictRequest):
         raise HTTPException(404, f"Unknown provider_id: {req.provider_id}")
     provider_row = match.iloc[0]
 
+    client_area, client_latlng = _resolve_location(req.client_area, req.client_lat, req.client_lng)
     try:
-        score, features = _score_provider(req.client_area, provider_row, req.time_slot, req.day_type)
+        score, features = _score_provider(client_area, provider_row, req.time_slot, req.day_type, client_latlng)
     except ValueError as e:
         raise HTTPException(400, str(e))
 
@@ -607,6 +708,7 @@ def predict(req: PredictRequest):
 def _rank_available(req):
     """Every available provider for the request, scored and sorted best-first.
     Raises 404 if none offer the service or none are available."""
+    client_area, client_latlng = _resolve_location(req.client_area, req.client_lat, req.client_lng)
     service_target = req.service_type.strip().lower()
     candidates = ref["providers"].loc[
         ref["providers"].service_type.astype(str).str.strip().str.lower() == service_target
@@ -643,7 +745,8 @@ def _rank_available(req):
     for _, provider_row in available_candidates.iterrows():
         try:
             features = build_feature_row(
-                req.client_area, provider_row, req.time_slot, req.day_type, ref, cache=cache
+                client_area, provider_row, req.time_slot, req.day_type, ref,
+                cache=cache, client_latlng=client_latlng,
             )
         except ValueError as e:
             print(f"[recommend] Skipping provider_id={provider_row['provider_id']}: {e}")
@@ -708,11 +811,21 @@ def register(req: RegisterRequest):
         raise HTTPException(400, "Name is required.")
     if not req.phone.strip():
         raise HTTPException(400, "Phone is required.")
-    if role == "client" and not req.area_id:
-        raise HTTPException(400, "area_id is required for client registration.")
-    if role == "provider" and (not req.base_area_id or not req.service_type or req.hourly_rate_ksh is None):
+    if (req.lat is None) != (req.lng is None):
+        raise HTTPException(400, "Send both lat and lng, or neither.")
+    # An exact location wins: the area is derived from it (#72).
+    derived_area_id = None
+    if req.lat is not None:
+        area_name, _ = _resolve_location(None, req.lat, req.lng)
+        derived_area_id = _area_id_for(area_name)
+    if role == "client" and not (req.area_id or derived_area_id):
+        raise HTTPException(400, "A location (lat/lng) or area_id is required for client registration.")
+    if role == "provider" and (
+        not (req.base_area_id or derived_area_id) or not req.service_type or req.hourly_rate_ksh is None
+    ):
         raise HTTPException(
-            400, "base_area_id, service_type, and hourly_rate_ksh are required for provider registration."
+            400, "A base location (lat/lng) or base_area_id, plus service_type and hourly_rate_ksh, "
+                 "are required for provider registration."
         )
 
     email = req.email.strip().lower()
@@ -727,12 +840,15 @@ def register(req: RegisterRequest):
         provider_id = None
         if role == "client":
             client_id = _next_id(cursor, "clients", "client_id", "C")
-            _insert_client(cursor, client_id, req.name.strip(), req.area_id, req.phone.strip(), email)
+            _insert_client(
+                cursor, client_id, req.name.strip(), derived_area_id or req.area_id, req.phone.strip(), email,
+                req.lat, req.lng,
+            )
         else:
             provider_id = _next_id(cursor, "service_providers", "provider_id", "P")
             _insert_provider(
-                cursor, provider_id, req.name.strip(), req.base_area_id, req.service_type, req.hourly_rate_ksh,
-                req.phone.strip(),
+                cursor, provider_id, req.name.strip(), derived_area_id or req.base_area_id, req.service_type,
+                req.hourly_rate_ksh, req.phone.strip(), req.lat, req.lng,
             )
 
         user_id = _next_id(cursor, "users", "user_id", "U")
@@ -750,7 +866,7 @@ def register(req: RegisterRequest):
 
         conn.commit()
         if provider_id:
-            _add_provider_to_cache(provider_id, req)
+            _add_provider_to_cache(provider_id, req, derived_area_id or req.base_area_id, req.lat, req.lng)
         return RegisterResponse(user_id=user_id, role=role)
     except HTTPException:
         conn.rollback()
@@ -839,16 +955,17 @@ def create_booking(req: BookingCreateRequest):
         raise HTTPException(404, f"Unknown provider_id: {req.provider_id}")
     provider_row = match.iloc[0]
 
+    client_area, client_latlng = _resolve_location(req.client_area, req.client_lat, req.client_lng)
     # Exact match only: lookup_area() falls back to a fuzzy/first-row match,
     # which is fine for scoring previews but not for a stored booking.
-    if req.client_area not in set(ref["areas"]["area_name"]):
-        raise HTTPException(422, f"Unknown client_area: {req.client_area}")
+    if client_area not in set(ref["areas"]["area_name"]):
+        raise HTTPException(422, f"Unknown client_area: {client_area}")
 
     if not is_provider_available(req.provider_id, req.day_type, req.time_slot, ref.get("availability")):
         raise HTTPException(409, "This provider is not available for that day and time slot.")
 
     # Recompute rather than trusting a score sent by the browser.
-    score, _ = _score_provider(req.client_area, provider_row, req.time_slot, req.day_type)
+    score, _ = _score_provider(client_area, provider_row, req.time_slot, req.day_type, client_latlng)
     score = round(max(0.0, min(1.0, score)), 3)
     service_type = str(provider_row["service_type"])
 
@@ -859,8 +976,9 @@ def create_booking(req: BookingCreateRequest):
             raise HTTPException(404, f"Unknown client_id: {req.client_id}")
 
         booking_id = _insert_booking(
-            cursor, req.client_id, req.provider_id, service_type, req.client_area,
+            cursor, req.client_id, req.provider_id, service_type, client_area,
             req.time_slot, req.day_type, score,
+            *(client_latlng or (None, None)),
         )
         booking = _fetch_booking(cursor, booking_id)
 
@@ -1071,3 +1189,42 @@ def put_provider_availability(provider_id: str, req: AvailabilityUpdate):
         conn.close()
     _refresh_availability_cache(provider_id, slots)
     return slots
+
+
+@app.get("/locate", response_model=LocateResponse)
+def locate(lat: float, lng: float):
+    """Nearest named area for an exact point and whether it is covered, so the
+    UI can label a location before it is used (#72)."""
+    area_row, km = nearest_area(lat, lng, ref["areas"])
+    return LocateResponse(
+        area_id=str(area_row.area_id), area_name=str(area_row.area_name),
+        distance_km=round(km, 2), covered=km <= MAX_KM_FROM_NEAREST_AREA,
+    )
+
+
+@app.put("/profile/location", response_model=ProfileResponse, response_model_exclude_none=True)
+def update_saved_location(user_id: str, req: LocationUpdate):
+    """Save a client's home or a provider's base location (#72). The named
+    area is re-derived so labels and the area fallback stay consistent."""
+    area_name, _ = _resolve_location(None, req.lat, req.lng)
+    area_id = _area_id_for(area_name)
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        user = _user_entity(cursor, user_id)
+        if user is None:
+            raise HTTPException(404, f"Unknown user_id: {user_id}")
+        role, client_id, provider_id = user
+        if role not in ("client", "provider"):
+            raise HTTPException(400, "Only clients and providers have a saved location.")
+        _set_saved_location(cursor, role, client_id or provider_id, area_id, req.lat, req.lng)
+        profile = _fetch_profile(cursor, user_id)
+        conn.commit()
+    except HTTPException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    if role == "provider":
+        _update_provider_cache_location(provider_id, area_name, req.lat, req.lng)
+    return ProfileResponse(**profile)
