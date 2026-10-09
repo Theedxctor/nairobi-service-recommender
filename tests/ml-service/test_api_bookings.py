@@ -74,8 +74,8 @@ def test_create_booking_recomputes_score_and_notifies_both_sides(client, db):
     res = client.post("/bookings", json={**CREATE_BODY, "reliability_score": 0.99})
 
     assert res.status_code == 201
-    # (client_id, provider_id, service_type, area, slot, day, score)
-    client_id, provider_id, service_type, _, _, _, score = db.inserted
+    # (client_id, provider_id, service_type, area, slot, day, score, client_lat, client_lng)
+    client_id, provider_id, service_type, _, _, _, score, *_ = db.inserted
     assert (client_id, provider_id, service_type) == ("C0501", "P0023", "plumber")
     assert score != 0.99 and 0.0 <= score <= 1.0  # browser-sent score ignored
     recipients = {user for user, _ in db.notifications}
