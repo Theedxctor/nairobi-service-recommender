@@ -618,8 +618,12 @@ def _rank_available(req):
     if candidates.empty:
         raise HTTPException(404, f"No providers found for service_type: {req.service_type}")
 
-    # Filter to available providers before scoring
+    # Filter to available providers before scoring. Narrow the availability
+    # table to these candidates once, instead of scanning every row per provider.
     availability_df = ref.get("availability")
+    if availability_df is not None and not availability_df.empty:
+        candidate_ids = set(candidates["provider_id"].astype(str))
+        availability_df = availability_df.loc[availability_df["provider_id"].astype(str).isin(candidate_ids)]
     available_mask = candidates["provider_id"].apply(
         lambda pid: is_provider_available(pid, req.day_type, req.time_slot, availability_df)
     )
@@ -631,13 +635,27 @@ def _rank_available(req):
             f"Providers exist for service_type '{req.service_type}', but none are available for day_type '{req.day_type}' and time_slot '{req.time_slot}'."
         )
 
-    ranked = []
+    # Build every candidate's features (sharing area/traffic lookups), then
+    # score them in ONE pipeline.predict call instead of one call per provider:
+    # same numbers, ~50x less model overhead on Render's small CPU (#70).
+    cache = {}
+    scored_rows = []
     for _, provider_row in available_candidates.iterrows():
         try:
-            score, features = _score_provider(req.client_area, provider_row, req.time_slot, req.day_type)
+            features = build_feature_row(
+                req.client_area, provider_row, req.time_slot, req.day_type, ref, cache=cache
+            )
         except ValueError as e:
             print(f"[recommend] Skipping provider_id={provider_row['provider_id']}: {e}")
             continue
+        scored_rows.append((provider_row, features))
+    if not scored_rows:
+        return []
+    X = pd.DataFrame([{k: f[k] for k in MODEL_FEATURES} for _, f in scored_rows])
+    scores = pipeline.predict(X)
+
+    ranked = []
+    for (provider_row, features), score in zip(scored_rows, scores):
         ranked.append(RankedProvider(
             provider_id=str(provider_row["provider_id"]),
             name=str(provider_row["name"]),

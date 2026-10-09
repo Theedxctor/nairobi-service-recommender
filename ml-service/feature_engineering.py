@@ -191,12 +191,25 @@ def lookup_traffic(provider_area_id, time_slot, day_type, traffic_df):
     return row["corridor_name"], float(row["congestion_multiplier"]), float(row["avg_speed_kmh"])
 
 
-def build_feature_row(client_area, provider_row, time_slot, day_type, ref):
-    """Builds the 5 model features for one client-provider-time combination."""
+def build_feature_row(client_area, provider_row, time_slot, day_type, ref, cache=None):
+    """Builds the 5 model features for one client-provider-time combination.
+
+    `cache` is an optional dict shared across the providers of one request:
+    area and traffic lookups depend only on their arguments and the reference
+    data, so ranking N providers repeats the same few lookups (#70).
+    """
     areas = ref["areas"]
 
-    client_row = lookup_area(client_area, areas)
-    prov_area_row = lookup_area(provider_row["base_area_name"], areas)
+    def memo(key, compute):
+        if cache is None:
+            return compute()
+        if key not in cache:
+            cache[key] = compute()
+        return cache[key]
+
+    client_row = memo(("area", client_area), lambda: lookup_area(client_area, areas))
+    base_area = provider_row["base_area_name"]
+    prov_area_row = memo(("area", base_area), lambda: lookup_area(base_area, areas))
 
     # Use provider's actual GPS coordinates if available, falling back to base area centroid
     prov_lat = provider_row["lat"] if ("lat" in provider_row and pd.notna(provider_row["lat"])) else prov_area_row.lat
@@ -207,8 +220,9 @@ def build_feature_row(client_area, provider_row, time_slot, day_type, ref):
     # Avoid 0.0 km: realistic minimum intra-area travel distance is ~0.8 km
     distance_km = round(max(float(calc_dist), 0.8), 2)
 
-    corridor, congestion_multiplier, avg_speed_kmh = lookup_traffic(
-        prov_area_row.area_id, time_slot, day_type, ref["traffic"]
+    corridor, congestion_multiplier, avg_speed_kmh = memo(
+        ("traffic", prov_area_row.area_id, time_slot, day_type),
+        lambda: lookup_traffic(prov_area_row.area_id, time_slot, day_type, ref["traffic"]),
     )
 
     # Avoid 0.0 min ETA: realistic minimum travel/dispatch time in urban traffic is ~4.0 min
