@@ -93,6 +93,8 @@ function Review({ providerId }: { providerId: string | null }) {
           client_id: auth.client_id,
           provider_id: provider.provider_id,
           client_area: request.client_area,
+          client_lat: request.client_lat,
+          client_lng: request.client_lng,
           time_slot: request.time_slot,
           day_type: request.day_type,
         }),

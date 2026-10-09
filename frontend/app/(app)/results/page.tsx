@@ -133,7 +133,8 @@ export default function ResultsPage() {
             Recommended Providers
           </h1>
           <p className="text-xs text-stone-500 mt-0.5">
-            {capitalize(request.service_type)} in {request.client_area} ·{" "}
+            {capitalize(request.service_type)}{" "}
+            {request.client_lat !== undefined ? `near ${request.client_area} (exact location)` : `in ${request.client_area}`} ·{" "}
             {TIME_SLOT_LABELS[request.time_slot] ?? request.time_slot} ·{" "}
             {capitalize(request.day_type)}
           </p>

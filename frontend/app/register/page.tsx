@@ -5,6 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { API_BASE_URL } from "@/lib/api";
+import type { LocateResult } from "@/lib/location";
+import { LocationField } from "../location-field";
+import type { LatLng } from "../location-picker";
 
 // Same Nairobi area list backing data/raw/nairobi_areas.csv, matching the
 // area used on the service request form. area_id is what the API expects.
@@ -55,6 +58,9 @@ export default function RegisterPage() {
     serviceType: SERVICE_TYPES[1], // Plumber
     hourlyRate: "",
   });
+  // Exact home (client) / base (provider) location; the area select is the fallback (#73).
+  const [point, setPoint] = useState<LatLng | null>(null);
+  const [located, setLocated] = useState<LocateResult | null>(null);
   const [errors, setErrors] = useState<FormErrors>({});
   const [apiError, setApiError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -101,6 +107,10 @@ export default function RegisterPage() {
     const nextErrors = validate();
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
+    if (point && !located?.covered) {
+      setApiError("Your pin is outside the area NaiServe covers. Move it, or clear it by choosing an area.");
+      return;
+    }
 
     const payload: Record<string, unknown> = {
       email: form.email.trim().toLowerCase(),
@@ -109,10 +119,16 @@ export default function RegisterPage() {
       name: form.fullName.trim(),
       phone: form.phone.trim(),
     };
-    if (form.role === "client") {
+    if (point) {
+      // The API derives the area from the exact point.
+      payload.lat = point.lat;
+      payload.lng = point.lng;
+    } else if (form.role === "client") {
       payload.area_id = form.areaId;
     } else {
       payload.base_area_id = form.areaId;
+    }
+    if (form.role === "provider") {
       payload.service_type = form.serviceType.toLowerCase();
       payload.hourly_rate_ksh = Number(form.hourlyRate);
     }
@@ -312,16 +328,22 @@ export default function RegisterPage() {
               )}
             </div>
 
-            {/* Area / Location (client) or Base Area (provider) */}
-            <div>
-              <label htmlFor="areaId" className="mb-1 block text-sm font-medium text-stone-700">
-                {form.role === "client" ? "Area / Location" : "Base Area"}
+            {/* Exact location, with the area select as fallback (#73) */}
+            <LocationField
+              label={form.role === "client" ? "Your home location" : "Your base location"}
+              point={point}
+              onPointChange={setPoint}
+              onLocated={setLocated}
+              fallbackLabel={point ? "Area (set from your pin)" : "Or choose your area instead"}
+            >
+              <label htmlFor="areaId" className="sr-only">
+                {form.role === "client" ? "Area" : "Base area"}
               </label>
               <select
                 id="areaId"
-                value={form.areaId}
+                value={point && located?.covered ? located.area_id : form.areaId}
                 onChange={(e) => updateField("areaId", e.target.value)}
-                disabled={loading}
+                disabled={loading || Boolean(point)}
                 className="w-full rounded-md border border-stone-300 bg-white px-3.5 py-2.5 text-sm text-stone-800 focus:border-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-700/30 disabled:bg-stone-50 disabled:text-stone-400"
               >
                 {NAIROBI_AREAS.map((area) => (
@@ -330,7 +352,7 @@ export default function RegisterPage() {
                   </option>
                 ))}
               </select>
-            </div>
+            </LocationField>
 
             {/* Provider-only fields */}
             {form.role === "provider" && (
