@@ -47,7 +47,7 @@ export const createClient = () =>
     area_id: "A03",
   });
 
-export async function createProvider(): Promise<Account> {
+export async function createProvider(overrides: Record<string, unknown> = {}): Promise<Account> {
   const acct = await registerAndLogin({
     email: uniqueEmail("provider"),
     password: PASSWORD,
@@ -57,6 +57,7 @@ export async function createProvider(): Promise<Account> {
     base_area_id: "A03",
     service_type: "plumber",
     hourly_rate_ksh: 900,
+    ...overrides,
   });
   const api = await request.newContext();
   const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
@@ -66,6 +67,18 @@ export async function createProvider(): Promise<Account> {
   expect(res.ok(), await res.text()).toBeTruthy();
   await api.dispose();
   return acct;
+}
+
+/** Remove a test provider's availability so it is never recommended to real
+ * users after the test (accounts and bookings are kept as a record). */
+export async function retireProvider(acct: Account) {
+  const api = await request.newContext();
+  try {
+    const res = await api.put(`${API}/providers/${acct.providerId}/availability`, { data: { slots: [] } });
+    expect(res.ok(), await res.text()).toBeTruthy();
+  } finally {
+    await api.dispose();
+  }
 }
 
 export async function login(page: Page, email: string, password: string) {

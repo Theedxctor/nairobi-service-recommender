@@ -15,7 +15,8 @@ test("client request -> results -> booking -> cancel", async ({ page }) => {
   await page.waitForURL("**/results");
   await page.waitForSelector("text=Select Provider");
 
-  const names = await page.locator("h2").allInnerTexts();
+  // Only the ranked list: the "New on NaiServe" section below has its own h2s (#61).
+  const names = await page.locator("[aria-live=polite] h2").allInnerTexts();
   const api = await request.newContext();
   const rec = await api.post(`${API}/recommend`, { data: { ...RECOMMEND_BODY, top_n: 10 } });
   expect(rec.ok()).toBeTruthy();

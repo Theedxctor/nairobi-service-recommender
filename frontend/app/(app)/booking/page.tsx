@@ -59,7 +59,8 @@ function Review({ providerId }: { providerId: string | null }) {
   useEffect(() => {
     const result = readRecommendation();
     setRequest(result?.request ?? null);
-    setProvider(result?.providers.find((p) => p.provider_id === providerId) ?? null);
+    const all = [...(result?.providers ?? []), ...(result?.newProviders ?? [])];
+    setProvider(all.find((p) => p.provider_id === providerId) ?? null);
     setLoaded(true);
   }, [providerId]);
 
