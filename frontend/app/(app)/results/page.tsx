@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useAuthGuard } from "../../use-auth-guard";
 import {
+  RankedProvider,
   RecommendationResult,
   TIME_SLOT_LABELS,
   capitalize,
@@ -63,6 +64,7 @@ export default function ResultsPage() {
   }
 
   const { request } = result;
+  const newProviders = result.newProviders ?? [];
 
   return (
     <div className="max-w-3xl space-y-6">
@@ -150,137 +152,158 @@ export default function ResultsPage() {
             .
           </div>
         )}
-        {sortedProviders.map((provider, index) => {
-          const scorePercent = Math.round(provider.reliability_score * 100);
+        {sortedProviders.map((provider, index) => (
+          <ProviderCard key={provider.provider_id} provider={provider} rankLabel={`#${index + 1}`} />
+        ))}
+      </div>
 
-          return (
-            <div
-              key={provider.provider_id}
-              className="bg-white rounded-xl border border-stone-200 shadow-sm p-5 hover:border-teal-200 transition-all space-y-4"
+      {newProviders.length > 0 && (
+        <section aria-labelledby="new-providers-heading" className="space-y-4 pt-4">
+          <div className="rounded-xl border border-teal-200 bg-teal-50/60 p-5">
+            <h2 id="new-providers-heading" className="font-heading text-lg font-semibold text-stone-900">
+              New on NaiServe
+            </h2>
+            <p className="mt-1 text-sm text-stone-600">
+              These providers joined recently and have no completed jobs yet, so their
+              reliability score assumes a typical (platform-median) completion rate. They
+              are shown here rather than ranked alongside providers with a track record.
+            </p>
+          </div>
+          {newProviders.map((provider) => (
+            <ProviderCard key={provider.provider_id} provider={provider} />
+          ))}
+        </section>
+      )}
+    </div>
+  );
+}
+
+function ProviderCard({ provider, rankLabel }: { provider: RankedProvider; rankLabel?: string }) {
+  const scorePercent = Math.round(provider.reliability_score * 100);
+
+  return (
+    <div
+            className="bg-white rounded-xl border border-stone-200 shadow-sm p-5 hover:border-teal-200 transition-all space-y-4"
+    >
+      <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+        {/* Provider Info */}
+        <div className="space-y-1">
+          <div className="flex items-center gap-2">
+            {rankLabel && (
+              <span className="text-xs font-bold text-stone-400 w-5">{rankLabel}</span>
+            )}
+            <h2 className="font-heading text-lg font-bold text-stone-900">
+              {provider.name}
+            </h2>
+            <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
+              {ratingLabel(provider.rating)}
+            </span>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-4 text-xs text-stone-600 pt-1">
+            {/* ETA with clock icon */}
+            <span className="inline-flex items-center gap-1">
+              <svg
+                className="w-4 h-4 text-stone-400"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+                />
+              </svg>
+              {provider.estimated_travel_min} min ETA
+            </span>
+
+            {/* Distance with map-pin icon */}
+            <span className="inline-flex items-center gap-1">
+              <svg
+                className="w-4 h-4 text-stone-400"
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+              >
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
+                />
+                <path
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  strokeWidth={2}
+                  d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
+                />
+              </svg>
+              {provider.distance_km} km away
+            </span>
+
+            {/* Hourly rate */}
+            <span className="inline-flex items-center gap-1 font-semibold text-stone-800">
+              KES {provider.hourly_rate_ksh.toLocaleString()} / hr
+            </span>
+          </div>
+        </div>
+
+        {/* Select Provider: review step before anything is booked */}
+        <Link
+          href={`/booking?provider=${provider.provider_id}`}
+          className="px-4 py-2 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-xs font-semibold shadow-sm transition-colors self-start whitespace-nowrap"
+        >
+          Select Provider
+        </Link>
+      </div>
+
+      {/* Reliability Score and Explanation Section */}
+      <div className="pt-2 border-t border-stone-100 space-y-2">
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-xs font-medium">
+            <span className="text-stone-700 font-semibold">
+              Reliability Score
+            </span>
+            <span
+              className={`font-bold ${
+                scorePercent >= 85
+                  ? "text-teal-700"
+                  : scorePercent >= 75
+                  ? "text-teal-600"
+                  : "text-amber-600"
+              }`}
             >
-              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-                {/* Provider Info */}
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xs font-bold text-stone-400 w-5">
-                      #{index + 1}
-                    </span>
-                    <h2 className="font-heading text-lg font-bold text-stone-900">
-                      {provider.name}
-                    </h2>
-                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-                      {ratingLabel(provider.rating)}
-                    </span>
-                  </div>
+              {scorePercent}%
+            </span>
+          </div>
+          {/* Progress bar */}
+          <div
+            className="w-full bg-stone-100 rounded-full h-2 overflow-hidden"
+            role="progressbar"
+            aria-valuenow={scorePercent}
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-label={`Reliability score for ${provider.name}`}
+          >
+            <div
+              className={`h-2 rounded-full transition-all duration-500 ${
+                scorePercent >= 85
+                  ? "bg-teal-700"
+                  : scorePercent >= 75
+                  ? "bg-teal-500"
+                  : "bg-amber-500"
+              }`}
+              style={{ width: `${scorePercent}%` }}
+            />
+          </div>
+        </div>
 
-                  <div className="flex flex-wrap items-center gap-4 text-xs text-stone-600 pt-1">
-                    {/* ETA with clock icon */}
-                    <span className="inline-flex items-center gap-1">
-                      <svg
-                        className="w-4 h-4 text-stone-400"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-                        />
-                      </svg>
-                      {provider.estimated_travel_min} min ETA
-                    </span>
-
-                    {/* Distance with map-pin icon */}
-                    <span className="inline-flex items-center gap-1">
-                      <svg
-                        className="w-4 h-4 text-stone-400"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        stroke="currentColor"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"
-                        />
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          strokeWidth={2}
-                          d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"
-                        />
-                      </svg>
-                      {provider.distance_km} km away
-                    </span>
-
-                    {/* Hourly rate */}
-                    <span className="inline-flex items-center gap-1 font-semibold text-stone-800">
-                      KES {provider.hourly_rate_ksh.toLocaleString()} / hr
-                    </span>
-                  </div>
-                </div>
-
-                {/* Select Provider: review step before anything is booked */}
-                <Link
-                  href={`/booking?provider=${provider.provider_id}`}
-                  className="px-4 py-2 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-xs font-semibold shadow-sm transition-colors self-start whitespace-nowrap"
-                >
-                  Select Provider
-                </Link>
-              </div>
-
-              {/* Reliability Score and Explanation Section */}
-              <div className="pt-2 border-t border-stone-100 space-y-2">
-                <div className="space-y-1">
-                  <div className="flex items-center justify-between text-xs font-medium">
-                    <span className="text-stone-700 font-semibold">
-                      Reliability Score
-                    </span>
-                    <span
-                      className={`font-bold ${
-                        scorePercent >= 85
-                          ? "text-teal-700"
-                          : scorePercent >= 75
-                          ? "text-teal-600"
-                          : "text-amber-600"
-                      }`}
-                    >
-                      {scorePercent}%
-                    </span>
-                  </div>
-                  {/* Progress bar */}
-                  <div
-                    className="w-full bg-stone-100 rounded-full h-2 overflow-hidden"
-                    role="progressbar"
-                    aria-valuenow={scorePercent}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-label={`Reliability score for ${provider.name}`}
-                  >
-                    <div
-                      className={`h-2 rounded-full transition-all duration-500 ${
-                        scorePercent >= 85
-                          ? "bg-teal-700"
-                          : scorePercent >= 75
-                          ? "bg-teal-500"
-                          : "bg-amber-500"
-                      }`}
-                      style={{ width: `${scorePercent}%` }}
-                    />
-                  </div>
-                </div>
-
-                {/* Explanation in italics */}
-                <p className="text-xs italic text-stone-500">
-                  {capitalize(provider.explanation)}
-                </p>
-              </div>
-            </div>
-          );
-        })}
+        {/* Explanation in italics */}
+        <p className="text-xs italic text-stone-500">
+          {capitalize(provider.explanation)}
+        </p>
       </div>
     </div>
   );

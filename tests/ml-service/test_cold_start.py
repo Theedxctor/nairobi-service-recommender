@@ -94,3 +94,61 @@ def test_registered_provider_is_scorable_without_restart(client, monkeypatch):
     predicted = client.post("/predict", json={**PREDICT_BODY, "provider_id": "P9999"})
     assert predicted.status_code == 200
     assert "new provider" in predicted.json()["explanation"]
+
+
+# ---------------------------------------------------------------------------
+# "New on NaiServe" section (#61)
+# ---------------------------------------------------------------------------
+NEW_BODY = {**PREDICT_BODY, "service_type": "plumber"}
+
+
+@pytest.fixture
+def all_available(monkeypatch):
+    monkeypatch.setattr(api, "is_provider_available", lambda *a, **k: True)
+
+
+def test_is_new_flag_only_on_providers_without_history(client, with_new_provider, all_available):
+    ranked = client.post("/recommend", json={**NEW_BODY, "top_n": 500}).json()
+    flags = {p["provider_id"]: p["is_new"] for p in ranked}
+    assert flags["PNEW1"] is True
+    assert flags["P0023"] is False
+
+
+def test_new_providers_section_lists_new_provider_outside_top_n(client, with_new_provider, all_available):
+    top10 = [p["provider_id"] for p in client.post("/recommend", json={**NEW_BODY, "top_n": 10}).json()]
+    assert "PNEW1" not in top10  # the cold-start trap this section exists for
+
+    res = client.post("/recommend/new-providers", json={**NEW_BODY, "top_n": 10, "limit": 2})
+    assert res.status_code == 200
+    ids = [p["provider_id"] for p in res.json()]
+    # Other real no-history providers in the DB may appear too; what matters
+    # is that ours is surfaced, every entry is new, and none repeats the top 10.
+    assert "PNEW1" in ids and len(ids) <= 2
+    assert all(p["is_new"] for p in res.json())
+    assert not set(ids) & set(top10)
+
+
+def test_new_providers_section_never_repeats_the_main_list(client, with_new_provider, all_available):
+    # A top_n that covers everyone leaves nothing new to show separately.
+    res = client.post("/recommend/new-providers", json={**NEW_BODY, "top_n": 500})
+    assert res.json() == []
+
+
+def test_new_providers_limit(client, monkeypatch, all_available):
+    extra = [_new_provider(provider_id=f"PNEW{i}").to_frame().T for i in range(1, 5)]
+    monkeypatch.setitem(api.ref, "providers", pd.concat([api.ref["providers"], *extra], ignore_index=True))
+    res = client.post("/recommend/new-providers", json={**NEW_BODY, "limit": 2})
+    assert len(res.json()) == 2
+
+
+def test_main_ranking_unchanged_by_new_section(client, with_new_provider, all_available):
+    before = client.post("/recommend", json={**NEW_BODY, "top_n": 10}).json()
+    client.post("/recommend/new-providers", json={**NEW_BODY, "top_n": 10})
+    after = client.post("/recommend", json={**NEW_BODY, "top_n": 10}).json()
+    assert before == after
+
+
+def test_new_providers_empty_when_nothing_available(client, monkeypatch):
+    monkeypatch.setattr(api, "is_provider_available", lambda *a, **k: False)
+    res = client.post("/recommend/new-providers", json=NEW_BODY)
+    assert res.status_code == 200 and res.json() == []
