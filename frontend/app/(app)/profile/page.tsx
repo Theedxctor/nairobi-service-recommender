@@ -7,6 +7,7 @@ import { API_BASE_URL, NETWORK_ERROR_MESSAGE, apiErrorMessage } from "@/lib/api"
 import type { LocateResult } from "@/lib/location";
 import { LocationField } from "../../location-field";
 import type { LatLng } from "../../location-picker";
+import { ratingLabel } from "@/lib/recommendation";
 
 interface Profile {
   user_id: string;
@@ -19,6 +20,7 @@ interface Profile {
   service_type?: string;
   hourly_rate_ksh?: number;
   rating?: number;
+  review_count?: number;
   completion_rate?: number;
   experience_years?: number;
   is_verified?: boolean;
@@ -112,7 +114,7 @@ export default function ProfilePage() {
                   label="Hourly Rate"
                   value={profile.hourly_rate_ksh != null ? `KES ${profile.hourly_rate_ksh.toLocaleString()}` : undefined}
                 />
-                <Field label="Rating" value={profile.rating != null ? profile.rating.toFixed(1) : undefined} />
+                <Field label="Rating" value={ratingLabel(profile.rating ?? null, profile.review_count)} />
                 <Field
                   label="Completion Rate"
                   value={profile.completion_rate != null ? `${Math.round(profile.completion_rate * 100)}%` : undefined}
@@ -248,4 +250,3 @@ function SavedLocation({ profile, onSaved }: { profile: Profile; onSaved: (p: Pr
     </section>
   );
 }
-

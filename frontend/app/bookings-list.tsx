@@ -254,6 +254,91 @@ export function BookingCard({
           {error}
         </p>
       )}
+      {booking.status === "completed" && (
+        <BookingFeedback booking={booking} role={role} ownerId={ownerId} onUpdated={onUpdated} />
+      )}
     </article>
+  );
+}
+
+function BookingFeedback({ booking, role, ownerId, onUpdated }: {
+  booking: Booking;
+  role: BookingRole;
+  ownerId: string;
+  onUpdated?: (b: Booking) => void;
+}) {
+  const [rating, setRating] = useState("");
+  const [comment, setComment] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState<Booking["review"]>(null);
+  const review = booking.review ?? saved;
+
+  const submit = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/bookings/${booking.booking_id}/review`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_id: ownerId, rating: Number(rating), comment: comment.trim() || null }),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        setError(apiErrorMessage(data));
+        return;
+      }
+      const updated = data as Booking;
+      setSaved(updated.review);
+      onUpdated?.(updated);
+    } catch {
+      setError(NETWORK_ERROR_MESSAGE);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (review) {
+    return (
+      <div className="mt-4 border-t border-stone-100 pt-4" role="status">
+        <p className="text-sm font-semibold text-teal-800">
+          {role === "client" ? "Your review" : "Client review"}: {review.rating}/5
+        </p>
+        {review.comment && <p className="mt-1 whitespace-pre-wrap break-words text-sm text-stone-600">{review.comment}</p>}
+        <p className="mt-1 text-xs text-stone-400">Submitted {new Date(review.created_at).toLocaleDateString()}</p>
+      </div>
+    );
+  }
+
+  if (role === "provider") {
+    return <p className="mt-4 text-sm text-stone-500">No client review yet.</p>;
+  }
+
+  return (
+    <form onSubmit={submit} className="mt-4 space-y-3 border-t border-stone-100 pt-4">
+      <p className="text-sm font-semibold text-stone-900">How was the service?</p>
+      <p className="text-xs text-stone-500">Your rating contributes to this provider&apos;s NaiServe rating. Your feedback is shared with the provider. Submit once per booking.</p>
+      <label className="block text-sm text-stone-700">
+        Rating
+        <select required value={rating} onChange={(e) => setRating(e.target.value)} disabled={busy}
+          className="mt-1 block rounded-md border border-stone-300 bg-white px-3 py-2 focus:ring-2 focus:ring-teal-600">
+          <option value="">Choose a rating</option>
+          {[1, 2, 3, 4, 5].map((value) => <option key={value} value={value}>{value} out of 5</option>)}
+        </select>
+      </label>
+      <label className="block text-sm text-stone-700">
+        Feedback (optional)
+        <textarea value={comment} onChange={(e) => setComment(e.target.value)} maxLength={1000} rows={3} disabled={busy}
+          className="mt-1 block w-full rounded-md border border-stone-300 px-3 py-2 focus:ring-2 focus:ring-teal-600" />
+      </label>
+      <p className="text-xs text-stone-400">{comment.length}/1000 characters</p>
+      {error && <p role="alert" className="text-sm text-red-600">{error}</p>}
+      <button type="submit" disabled={busy || !rating}
+        className="rounded-md bg-teal-700 px-3 py-2 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60">
+        {busy ? "Submitting..." : "Submit review"}
+      </button>
+    </form>
   );
 }
