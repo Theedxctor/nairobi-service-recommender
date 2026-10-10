@@ -17,6 +17,7 @@ Endpoints:
   POST /bookings           -> client books a provider (score recomputed server-side)
   GET  /bookings           -> a client's or a provider's bookings, newest first
   PATCH /bookings/{id}/status -> confirm / decline / cancel / complete a booking
+  POST /bookings/{id}/review -> client's rating and optional feedback after completion
   GET  /providers/{id}/availability -> a provider's weekly availability slots
   PUT  /providers/{id}/availability -> replace a provider's weekly availability
 
@@ -157,6 +158,7 @@ class RankedProvider(BaseModel):
     distance_km: float
     hourly_rate_ksh: int
     rating: Optional[float] = None  # None until a new provider has been rated
+    review_count: int = 0  # live NaiServe reviews, not imported dataset history
     is_new: bool = False  # no job history yet; score uses the cold-start prior (#52)
     explanation: str
 
@@ -205,6 +207,7 @@ class ProfileResponse(BaseModel):
     service_type: Optional[str] = None  # provider only
     hourly_rate_ksh: Optional[int] = None  # provider only
     rating: Optional[float] = None  # provider only
+    review_count: Optional[int] = None  # provider only; zero = no live reviews
     completion_rate: Optional[float] = None  # provider only
     experience_years: Optional[float] = None  # provider only
     is_verified: Optional[bool] = None  # provider only
@@ -232,6 +235,23 @@ class BookingStatusUpdate(BaseModel):
     actor_id: str = Field(..., examples=["P0023"])  # must own the booking
 
 
+class ReviewCreateRequest(BaseModel):
+    client_id: str
+    rating: int = Field(..., strict=True, ge=1, le=5)
+    comment: Optional[str] = Field(None, max_length=1000)
+
+    @field_validator("comment")
+    @classmethod
+    def _trim_comment(cls, value):
+        return (value.strip() or None) if value is not None else None
+
+
+class BookingReview(BaseModel):
+    rating: int
+    comment: Optional[str] = None
+    created_at: datetime
+
+
 class BookingResponse(BaseModel):
     booking_id: int
     client_id: str
@@ -248,6 +268,7 @@ class BookingResponse(BaseModel):
     client_lng: Optional[float] = None
     status: str
     created_at: datetime
+    review: Optional[BookingReview] = None
 
 
 class LocateResponse(BaseModel):
@@ -373,7 +394,9 @@ def _fetch_profile(cursor, user_id):
                sp.name, sp.phone, na_p.area_name, sp.service_type,
                sp.hourly_rate_ksh, sp.rating, sp.completion_rate,
                sp.experience_years, sp.is_verified,
-               ST_Y(COALESCE(c.location, sp.location)), ST_X(COALESCE(c.location, sp.location))
+               ST_Y(COALESCE(c.location, sp.location)), ST_X(COALESCE(c.location, sp.location)),
+               (SELECT COUNT(*) FROM booking_reviews r
+                JOIN bookings b ON b.booking_id = r.booking_id WHERE b.provider_id = sp.provider_id)
         FROM users u
         LEFT JOIN clients c ON u.client_id = c.client_id
         LEFT JOIN nairobi_areas na_c ON c.area_id = na_c.area_id
@@ -405,6 +428,7 @@ def _fetch_profile(cursor, user_id):
         "is_verified": row[15],
         "lat": row[16],
         "lng": row[17],
+        "review_count": row[18] if row[1] == "provider" else None,
     }
 
 
@@ -477,10 +501,12 @@ BOOKING_TRANSITIONS = {
 _BOOKING_SELECT = """
     SELECT b.booking_id, b.client_id, c.name, b.provider_id, sp.name, sp.hourly_rate_ksh,
            b.service_type, b.client_area, b.time_slot, b.day_type, b.reliability_score,
-           b.status, b.created_at, b.client_lat, b.client_lng
+           b.status, b.created_at, b.client_lat, b.client_lng,
+           r.rating, r.comment, r.created_at
     FROM bookings b
     LEFT JOIN clients c ON b.client_id = c.client_id
     LEFT JOIN service_providers sp ON b.provider_id = sp.provider_id
+    LEFT JOIN booking_reviews r ON r.booking_id = b.booking_id
 """
 
 
@@ -502,6 +528,8 @@ def _row_to_booking(row):
         "created_at": row[12].replace(tzinfo=timezone.utc),
         "client_lat": float(row[13]) if row[13] is not None else None,
         "client_lng": float(row[14]) if row[14] is not None else None,
+        "review": {"rating": row[15], "comment": row[16], "created_at": row[17]}
+        if row[15] is not None else None,
     }
 
 
@@ -540,6 +568,40 @@ def _fetch_bookings(cursor, column, value):
 
 def _update_booking_status(cursor, booking_id, status):
     cursor.execute("UPDATE bookings SET status = %s WHERE booking_id = %s", (status, booking_id))
+
+
+def _lock_booking(cursor, booking_id):
+    # Serialise status changes/reviews before reading state. This prevents a
+    # concurrent cancellation from overwriting a completed, reviewed booking.
+    cursor.execute("SELECT booking_id FROM bookings WHERE booking_id = %s FOR UPDATE", (booking_id,))
+
+
+def _fetch_current_ratings(provider_ids):
+    """One batched DB read: ratings must not depend on a worker's startup cache."""
+    if not provider_ids:
+        return {}
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute(
+            """
+            SELECT sp.provider_id, sp.rating, COUNT(r.booking_id)
+            FROM service_providers sp
+            LEFT JOIN bookings b ON b.provider_id = sp.provider_id
+            LEFT JOIN booking_reviews r ON r.booking_id = b.booking_id
+            WHERE sp.provider_id = ANY(%s)
+            GROUP BY sp.provider_id
+            """, (provider_ids,),
+        )
+        return {row[0]: {"rating": float(row[1]) if row[1] is not None else None,
+                         "review_count": row[2]} for row in cursor.fetchall()}
+    finally:
+        conn.close()
+
+
+def _current_ratings(ranked):
+    ratings = _fetch_current_ratings([p.provider_id for p in ranked])
+    return [p.model_copy(update=ratings.get(p.provider_id, {})) for p in ranked]
 
 
 def _user_id_for(cursor, column, value):
@@ -777,7 +839,7 @@ def _rank_available(req):
 
 @app.post("/recommend", response_model=list[RankedProvider])
 def recommend(req: RecommendRequest):
-    return _rank_available(req)[: req.top_n]
+    return _current_ratings(_rank_available(req)[: req.top_n])
 
 
 @app.post("/recommend/new-providers", response_model=list[RankedProvider])
@@ -795,7 +857,7 @@ def recommend_new_providers(req: NewProvidersRequest):
             return []  # nothing available at all; the main list reports that
         raise
     shown = {r.provider_id for r in ranked[: req.top_n]}
-    return [r for r in ranked if r.is_new and r.provider_id not in shown][: req.limit]
+    return _current_ratings([r for r in ranked if r.is_new and r.provider_id not in shown][: req.limit])
 
 
 @app.post("/auth/register", response_model=RegisterResponse)
@@ -1032,6 +1094,7 @@ def update_booking_status(booking_id: int, req: BookingStatusUpdate):
     conn = _get_db_connection()
     try:
         cursor = conn.cursor()
+        _lock_booking(cursor, booking_id)
         booking = _fetch_booking(cursor, booking_id)
         if booking is None:
             raise HTTPException(404, f"Unknown booking_id: {booking_id}")
@@ -1060,6 +1123,57 @@ def update_booking_status(booking_id: int, req: BookingStatusUpdate):
         conn.commit()
         return BookingResponse(**updated)
     except HTTPException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@app.post("/bookings/{booking_id}/review", response_model=BookingResponse, status_code=201)
+def create_booking_review(booking_id: int, req: ReviewCreateRequest):
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        _lock_booking(cursor, booking_id)
+        booking = _fetch_booking(cursor, booking_id)
+        if booking is None:
+            raise HTTPException(404, f"Unknown booking_id: {booking_id}")
+        # Same prototype ownership check as status updates, NOT session auth.
+        if booking["client_id"] != req.client_id:
+            raise HTTPException(403, "This booking does not belong to this client.")
+        if booking["status"] != "completed":
+            raise HTTPException(409, "Only completed bookings can be reviewed.")
+        if booking["review"] is not None:
+            raise HTTPException(409, "This booking already has a review.")
+
+        # Serialise different bookings reviewing the same provider. The next
+        # statement sees the previous transaction's committed review before
+        # recomputing the average (READ COMMITTED), avoiding lost updates.
+        cursor.execute("SELECT provider_id FROM service_providers WHERE provider_id = %s FOR UPDATE",
+                       (booking["provider_id"],))
+        cursor.execute(
+            "INSERT INTO booking_reviews (booking_id, rating, comment) VALUES (%s, %s, %s)",
+            (booking_id, req.rating, req.comment),
+        )
+        cursor.execute(
+            """
+            UPDATE service_providers SET rating = (
+                SELECT ROUND(AVG(r.rating), 1) FROM booking_reviews r
+                JOIN bookings b ON b.booking_id = r.booking_id WHERE b.provider_id = %s
+            ) WHERE provider_id = %s
+            """, (booking["provider_id"], booking["provider_id"]),
+        )
+        recipient = _user_id_for(cursor, "provider_id", booking["provider_id"])
+        if recipient:
+            _insert_notification(cursor, recipient,
+                                 f"New {req.rating}/5 review for booking #{booking_id}. View it in your jobs.")
+        updated = _fetch_booking(cursor, booking_id)
+        conn.commit()
+        return BookingResponse(**updated)
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        raise HTTPException(409, "This booking already has a review.")
+    except Exception:
         conn.rollback()
         raise
     finally:

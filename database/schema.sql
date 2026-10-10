@@ -210,3 +210,12 @@ CREATE TABLE notifications (
 );
 
 CREATE INDEX idx_notifications_user_id ON notifications (user_id);
+
+-- 11. booking_reviews: feedback on live completed jobs only. Ownership and
+-- provider are derived from bookings; never backfill synthetic reviews.
+CREATE TABLE booking_reviews (
+    booking_id INTEGER PRIMARY KEY REFERENCES bookings(booking_id),
+    rating SMALLINT NOT NULL CHECK (rating BETWEEN 1 AND 5),
+    comment VARCHAR(1000),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
