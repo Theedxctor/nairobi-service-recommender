@@ -29,6 +29,18 @@ prediction previews can still run without Docker/Postgres. Booking, profile,
 review and recommendation responses require PostgreSQL (recommendations read
 current ratings rather than serving stale imported values).
 
+## Result filters (#79)
+
+`POST /recommend` and `POST /recommend/new-providers` accept three optional
+fields: `max_hourly_rate_ksh` (integer, at least 1), `min_rating` (1 to 5) and
+`verified_only` (boolean). They are applied after ranking and before the
+`top_n` cut, so they remove providers without changing any score or the
+order, and a match ranked below the unfiltered top N is still returned.
+`min_rating` compares current ratings and excludes providers with no rating.
+When nothing matches, the response is `200` with an empty list (`404` still
+means no provider offers the service or none is available). Each ranked
+provider also reports `is_verified`.
+
 ## Post-job reviews (#77)
 
 Apply `database/migrations/003_booking_reviews.sql` to existing databases
