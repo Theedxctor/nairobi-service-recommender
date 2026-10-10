@@ -3,9 +3,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useAuthGuard } from "../../use-auth-guard";
-import { API_BASE_URL } from "@/lib/api";
+import { API_BASE_URL, NETWORK_ERROR_MESSAGE, apiErrorMessage } from "@/lib/api";
 import {
   RankedProvider,
+  RecommendRequest,
   RecommendationResult,
   TIME_SLOT_LABELS,
   capitalize,
@@ -16,36 +17,115 @@ import {
 
 type SortKey = "reliability" | "distance" | "price" | "rating";
 
+// Form state for the filters (#79); strings so an empty field means "no limit".
+interface Filters {
+  maxPrice: string;
+  minRating: string;
+  verifiedOnly: boolean;
+}
+
+const NO_FILTERS: Filters = { maxPrice: "", minRating: "", verifiedOnly: false };
+
+function filtersOf(request: RecommendRequest): Filters {
+  return {
+    maxPrice: request.max_hourly_rate_ksh?.toString() ?? "",
+    minRating: request.min_rating?.toString() ?? "",
+    verifiedOnly: request.verified_only ?? false,
+  };
+}
+
+function hasFilters(request: RecommendRequest): boolean {
+  return (
+    request.max_hourly_rate_ksh !== undefined ||
+    request.min_rating !== undefined ||
+    request.verified_only === true
+  );
+}
+
 export default function ResultsPage() {
   const { checked } = useAuthGuard(["client"]);
   const [sortBy, setSortBy] = useState<SortKey>("reliability");
   const [result, setResult] = useState<RecommendationResult | null>(null);
   const [loaded, setLoaded] = useState(false);
+  const [filters, setFilters] = useState<Filters>(NO_FILTERS);
+  const [filtering, setFiltering] = useState(false);
+  const [filterError, setFilterError] = useState<string | null>(null);
+
+  // Load the optional "New on NaiServe" section once per search, after the
+  // ranked list is shown, and keep it with the result so /booking can find
+  // a provider selected from it. A failure just means no section.
+  const loadNewProviders = (saved: RecommendationResult) => {
+    fetch(`${API_BASE_URL}/recommend/new-providers`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...saved.request, limit: 2 }),
+    })
+      .then((r) => (r.ok ? r.json() : []))
+      .catch(() => [])
+      .then((newProviders: RankedProvider[]) => {
+        // Ignore the answer if another search replaced this one meanwhile.
+        const current = readRecommendation();
+        if (!current || JSON.stringify(current.request) !== JSON.stringify(saved.request)) return;
+        const updated = { ...saved, newProviders };
+        saveRecommendation(updated);
+        setResult(updated);
+      });
+  };
 
   // Written by /request after a successful POST /recommend.
   useEffect(() => {
     const saved = readRecommendation();
     setResult(saved);
     setLoaded(true);
+    if (saved) setFilters(filtersOf(saved.request));
+    if (saved && saved.newProviders === undefined) loadNewProviders(saved);
+  }, []);
 
-    // Load the optional "New on NaiServe" section once per search, after the
-    // ranked list is shown, and keep it with the result so /booking can find
-    // a provider selected from it. A failure just means no section.
-    if (saved && saved.newProviders === undefined) {
-      fetch(`${API_BASE_URL}/recommend/new-providers`, {
+  // Filters run in the API over every available provider, before the top-10
+  // cut, so this re-runs the search rather than hiding cards already shown.
+  const applyFilters = async (next: Filters) => {
+    if (!result) return;
+    const maxPrice = next.maxPrice.trim() === "" ? undefined : Number(next.maxPrice);
+    if (maxPrice !== undefined && (!Number.isInteger(maxPrice) || maxPrice < 1)) {
+      setFilterError("Enter the price limit as a whole number of shillings.");
+      return;
+    }
+    const base: RecommendRequest = { ...result.request };
+    delete base.max_hourly_rate_ksh;
+    delete base.min_rating;
+    delete base.verified_only;
+    const body: RecommendRequest = {
+      ...base,
+      ...(maxPrice !== undefined && { max_hourly_rate_ksh: maxPrice }),
+      ...(next.minRating !== "" && { min_rating: Number(next.minRating) }),
+      ...(next.verifiedOnly && { verified_only: true }),
+    };
+
+    setFiltering(true);
+    setFilterError(null);
+    try {
+      const res = await fetch(`${API_BASE_URL}/recommend`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ ...saved.request, limit: 2 }),
-      })
-        .then((r) => (r.ok ? r.json() : []))
-        .catch(() => [])
-        .then((newProviders: RankedProvider[]) => {
-          const updated = { ...saved, newProviders };
-          saveRecommendation(updated);
-          setResult(updated);
-        });
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        // The list on screen stays as it was; only the message changes.
+        setFilterError(apiErrorMessage(data));
+        return;
+      }
+      const updated: RecommendationResult = { request: body, providers: data as RankedProvider[] };
+      saveRecommendation(updated);
+      setResult(updated);
+      setFilters(next);
+      loadNewProviders(updated);
+    } catch {
+      setFilterError(NETWORK_ERROR_MESSAGE);
+    } finally {
+      setFiltering(false);
     }
-  }, []);
+  };
 
   const sortedProviders = useMemo(() => {
     const list = [...(result?.providers ?? [])];
@@ -161,9 +241,106 @@ export default function ResultsPage() {
         </div>
       </div>
 
+      {/* Filters */}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          applyFilters(filters);
+        }}
+        aria-label="Filter providers"
+        className="bg-white p-5 rounded-xl border border-stone-200 shadow-sm space-y-3"
+      >
+        <div className="flex flex-col sm:flex-row sm:items-end gap-4">
+          <div>
+            <label htmlFor="maxPrice" className="block text-xs font-medium text-stone-600 mb-1">
+              Price limit (KES / hr)
+            </label>
+            <input
+              id="maxPrice"
+              type="number"
+              min={1}
+              step={1}
+              inputMode="numeric"
+              placeholder="Any"
+              value={filters.maxPrice}
+              onChange={(e) => setFilters({ ...filters, maxPrice: e.target.value })}
+              className="w-36 px-3 py-1.5 rounded-lg border border-stone-300 bg-white text-stone-800 text-xs shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+            />
+          </div>
+          <div>
+            <label htmlFor="minRating" className="block text-xs font-medium text-stone-600 mb-1">
+              Minimum rating
+            </label>
+            <select
+              id="minRating"
+              value={filters.minRating}
+              onChange={(e) => setFilters({ ...filters, minRating: e.target.value })}
+              className="px-3 py-1.5 rounded-lg border border-stone-300 bg-white text-stone-800 text-xs font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+            >
+              <option value="">Any</option>
+              <option value="3">3.0 and above</option>
+              <option value="3.5">3.5 and above</option>
+              <option value="4">4.0 and above</option>
+              <option value="4.5">4.5 and above</option>
+            </select>
+          </div>
+          <label className="inline-flex items-center gap-2 text-xs font-medium text-stone-700 sm:pb-2">
+            <input
+              id="verifiedOnly"
+              type="checkbox"
+              checked={filters.verifiedOnly}
+              onChange={(e) => setFilters({ ...filters, verifiedOnly: e.target.checked })}
+              className="h-4 w-4 rounded border-stone-300 text-teal-700 focus:ring-teal-500"
+            />
+            Verified providers only
+          </label>
+          <div className="flex items-center gap-2 sm:ml-auto">
+            {hasFilters(request) && (
+              <button
+                type="button"
+                onClick={() => applyFilters(NO_FILTERS)}
+                disabled={filtering}
+                className="px-3 py-1.5 rounded-lg border border-stone-300 text-stone-700 text-xs font-semibold hover:bg-stone-50 disabled:opacity-60"
+              >
+                Clear filters
+              </button>
+            )}
+            <button
+              type="submit"
+              disabled={filtering}
+              className="px-3 py-1.5 rounded-lg bg-teal-700 hover:bg-teal-800 text-white text-xs font-semibold shadow-sm disabled:opacity-60"
+            >
+              {filtering ? "Applying..." : "Apply filters"}
+            </button>
+          </div>
+        </div>
+        <p className="text-xs text-stone-500">
+          Filters search every available provider, not only the ones listed below, and
+          keep the reliability ranking. A minimum rating hides providers who have not
+          been rated yet.
+        </p>
+        {filterError && (
+          <p role="alert" className="text-xs font-medium text-red-700">
+            {filterError}
+          </p>
+        )}
+      </form>
+
       {/* Provider Cards List */}
       <div className="space-y-4" aria-live="polite">
-        {sortedProviders.length === 0 && (
+        {sortedProviders.length === 0 && hasFilters(request) && (
+          <div className="bg-white rounded-xl border border-stone-200 p-8 text-center text-sm text-stone-500">
+            No available providers match these filters.{" "}
+            <button
+              type="button"
+              onClick={() => applyFilters(NO_FILTERS)}
+              className="font-semibold text-teal-600 hover:underline"
+            >
+              Clear filters
+            </button>
+          </div>
+        )}
+        {sortedProviders.length === 0 && !hasFilters(request) && (
           // /recommend can return 200 with an empty list if every candidate
           // was skipped during scoring (e.g. missing area data).
           <div className="bg-white rounded-xl border border-stone-200 p-8 text-center text-sm text-stone-500">
@@ -220,6 +397,11 @@ function ProviderCard({ provider, rankLabel }: { provider: RankedProvider; rankL
             <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
               {ratingLabel(provider.rating, provider.review_count)}
             </span>
+            {provider.is_verified && (
+              <span className="inline-flex items-center text-xs font-semibold text-teal-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
+                Verified
+              </span>
+            )}
           </div>
 
           <div className="flex flex-wrap items-center gap-4 text-xs text-stone-600 pt-1">
