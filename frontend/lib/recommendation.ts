@@ -6,7 +6,8 @@ export interface RankedProvider {
   estimated_travel_min: number;
   distance_km: number;
   hourly_rate_ksh: number;
-  rating: number | null; // null for new providers with no completed jobs
+  rating: number | null; // null until rated; imported ratings labelled separately
+  review_count?: number; // optional for saved results from before reviews launched
   is_new?: boolean; // no job history yet: score uses the platform-median prior
   explanation: string;
 }
@@ -56,8 +57,12 @@ export function readRecommendation(): RecommendationResult | null {
   }
 }
 
-export function ratingLabel(rating: number | null): string {
-  return rating === null ? "New" : `★ ${rating.toFixed(1)}`;
+export function ratingLabel(rating: number | null, reviewCount = 0): string {
+  if (rating === null) return "Not yet rated";
+  const source = reviewCount > 0
+    ? `${reviewCount} NaiServe review${reviewCount === 1 ? "" : "s"}`
+    : "Imported dataset rating";
+  return `★ ${rating.toFixed(1)} · ${source}`;
 }
 
 export function capitalize(text: string): string {
@@ -79,4 +84,9 @@ export interface Booking {
   reliability_score: number | null;
   status: "pending" | "confirmed" | "completed" | "cancelled";
   created_at: string;
+  review?: {
+    rating: number;
+    comment: string | null;
+    created_at: string;
+  } | null;
 }
