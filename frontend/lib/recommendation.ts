@@ -9,6 +9,7 @@ export interface RankedProvider {
   rating: number | null; // null until rated; imported ratings labelled separately
   review_count?: number; // optional for saved results from before reviews launched
   is_new?: boolean; // no job history yet: score uses the platform-median prior
+  is_verified?: boolean; // optional for saved results from before filters (#79)
   explanation: string;
 }
 
@@ -22,6 +23,10 @@ export interface RecommendRequest {
   time_slot: string;
   day_type: string;
   top_n: number;
+  // Optional filters (#79). The API applies them before the top_n cut.
+  max_hourly_rate_ksh?: number;
+  min_rating?: number;
+  verified_only?: boolean;
 }
 
 export interface RecommendationResult {
