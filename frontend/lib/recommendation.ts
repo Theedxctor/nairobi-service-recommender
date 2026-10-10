@@ -88,6 +88,9 @@ export interface Booking {
   day_type: string;
   reliability_score: number | null;
   status: "pending" | "confirmed" | "completed" | "cancelled";
+  // Set when cancelled (#81); null for bookings cancelled before this was recorded.
+  cancelled_by?: "client" | "provider" | null;
+  cancellation_reason?: string | null;
   created_at: string;
   review?: {
     rating: number;
