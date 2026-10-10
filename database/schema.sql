@@ -191,7 +191,15 @@ CREATE TABLE bookings (
     client_lat DECIMAL(9,6),
     client_lng DECIMAL(9,6),
     status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'completed', 'cancelled')),
-    created_at TIMESTAMP DEFAULT NOW()
+    -- Who cancelled and why (#81). NULL unless cancelled; also NULL for
+    -- bookings cancelled before these columns existed.
+    cancelled_by VARCHAR(10),
+    cancellation_reason VARCHAR(300),
+    created_at TIMESTAMP DEFAULT NOW(),
+    CONSTRAINT bookings_cancellation_check CHECK (
+        (cancelled_by IS NULL OR cancelled_by IN ('client', 'provider'))
+        AND (status = 'cancelled' OR (cancelled_by IS NULL AND cancellation_reason IS NULL))
+    )
 );
 
 CREATE INDEX idx_bookings_client_id ON bookings (client_id);

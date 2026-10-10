@@ -3,7 +3,6 @@ import { API, RECOMMEND_BODY, createClient, login, waitForRequestForm } from "./
 
 test("client request -> results -> booking -> cancel", async ({ page }) => {
   const client = await createClient();
-  page.on("dialog", (d) => d.accept());
   await login(page, client.email, client.password);
 
   await page.goto("/request");
@@ -41,6 +40,8 @@ test("client request -> results -> booking -> cancel", async ({ page }) => {
   await page.goto("/dashboard/bookings");
   const card = page.locator("article", { hasText: `#${id}` });
   await card.getByRole("button", { name: "Cancel request" }).click();
+  // A pending request can be withdrawn without a reason (#81).
+  await card.getByRole("button", { name: "Confirm cancellation" }).click();
   await expect
     .poll(async () => {
       const l = await (await api.get(`${API}/bookings?client_id=${client.clientId}`)).json();
