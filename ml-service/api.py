@@ -239,6 +239,14 @@ class BookingStatusUpdate(BaseModel):
     status: str = Field(..., examples=["confirmed"])
     actor: str = Field(..., examples=["provider"])  # "client" or "provider"
     actor_id: str = Field(..., examples=["P0023"])  # must own the booking
+    # Only for status "cancelled" (#81): required when the booking was already
+    # confirmed, optional when a pending request is declined or withdrawn.
+    reason: Optional[str] = Field(None, max_length=300)
+
+    @field_validator("reason")
+    @classmethod
+    def _trim_reason(cls, value):
+        return (value.strip() or None) if value is not None else None
 
 
 class ReviewCreateRequest(BaseModel):
@@ -273,6 +281,8 @@ class BookingResponse(BaseModel):
     client_lat: Optional[float] = None  # exact job location, if the client shared one
     client_lng: Optional[float] = None
     status: str
+    cancelled_by: Optional[str] = None  # "client" / "provider"; None if not recorded
+    cancellation_reason: Optional[str] = None
     created_at: datetime
     review: Optional[BookingReview] = None
 
@@ -508,7 +518,8 @@ _BOOKING_SELECT = """
     SELECT b.booking_id, b.client_id, c.name, b.provider_id, sp.name, sp.hourly_rate_ksh,
            b.service_type, b.client_area, b.time_slot, b.day_type, b.reliability_score,
            b.status, b.created_at, b.client_lat, b.client_lng,
-           r.rating, r.comment, r.created_at
+           r.rating, r.comment, r.created_at,
+           b.cancelled_by, b.cancellation_reason
     FROM bookings b
     LEFT JOIN clients c ON b.client_id = c.client_id
     LEFT JOIN service_providers sp ON b.provider_id = sp.provider_id
@@ -536,6 +547,8 @@ def _row_to_booking(row):
         "client_lng": float(row[14]) if row[14] is not None else None,
         "review": {"rating": row[15], "comment": row[16], "created_at": row[17]}
         if row[15] is not None else None,
+        "cancelled_by": row[18],
+        "cancellation_reason": row[19],
     }
 
 
@@ -572,8 +585,11 @@ def _fetch_bookings(cursor, column, value):
     return [_row_to_booking(row) for row in cursor.fetchall()]
 
 
-def _update_booking_status(cursor, booking_id, status):
-    cursor.execute("UPDATE bookings SET status = %s WHERE booking_id = %s", (status, booking_id))
+def _update_booking_status(cursor, booking_id, status, cancelled_by=None, reason=None):
+    cursor.execute(
+        "UPDATE bookings SET status = %s, cancelled_by = %s, cancellation_reason = %s WHERE booking_id = %s",
+        (status, cancelled_by, reason, booking_id),
+    )
 
 
 def _lock_booking(cursor, booking_id):
@@ -623,11 +639,12 @@ def _booking_label(booking):
     return f"booking #{booking['booking_id']} ({booking['service_type']}, {booking['client_area']}, {slot}, {booking['day_type']})"
 
 
-def _status_change_notice(booking, new_status, actor):
+def _status_change_notice(booking, new_status, actor, reason=None):
     """(recipient column, recipient id, message) for the party who didn't act."""
     label = _booking_label(booking)
+    why = f" Reason: {reason}" if reason else ""
     if actor == "client":  # a client can only cancel
-        return ("provider_id", booking["provider_id"], f"{booking['client_name']} cancelled {label}.")
+        return ("provider_id", booking["provider_id"], f"{booking['client_name']} cancelled {label}.{why}")
     messages = {
         "confirmed": f"{booking['provider_name']} confirmed your {label}.",
         "completed": f"{booking['provider_name']} marked your {label} as completed.",
@@ -635,7 +652,7 @@ def _status_change_notice(booking, new_status, actor):
                       if booking["status"] == "pending"
                       else f"{booking['provider_name']} cancelled your {label}."),
     }
-    return ("client_id", booking["client_id"], messages[new_status])
+    return ("client_id", booking["client_id"], messages[new_status] + (why if new_status == "cancelled" else ""))
 
 
 # ---------------------------------------------------------------------------
@@ -1134,9 +1151,17 @@ def update_booking_status(booking_id: int, req: BookingStatusUpdate):
                 + (f" (allowed: {sorted(allowed)})." if allowed else "."),
             )
 
-        _update_booking_status(cursor, booking_id, new_status)
+        cancelling = new_status == "cancelled"
+        if req.reason and not cancelling:
+            raise HTTPException(422, "A reason can only be given when cancelling a booking.")
+        if cancelling and booking["status"] == "confirmed" and not req.reason:
+            raise HTTPException(422, "Give a reason when cancelling a confirmed booking.")
 
-        column, recipient_id, message = _status_change_notice(booking, new_status, actor)
+        _update_booking_status(cursor, booking_id, new_status,
+                               cancelled_by=actor if cancelling else None,
+                               reason=req.reason if cancelling else None)
+
+        column, recipient_id, message = _status_change_notice(booking, new_status, actor, req.reason)
         recipient_user = _user_id_for(cursor, column, recipient_id)
         if recipient_user:
             _insert_notification(cursor, recipient_user, message)

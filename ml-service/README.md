@@ -41,6 +41,21 @@ When nothing matches, the response is `200` with an empty list (`404` still
 means no provider offers the service or none is available). Each ranked
 provider also reports `is_verified`.
 
+## Cancellation reasons (#81)
+
+Apply `database/migrations/004_cancellation_reasons.sql` to existing databases
+**before** running this API version (booking queries select the new columns).
+It is safe to rerun.
+
+`PATCH /bookings/{id}/status` accepts an optional `reason` (up to 300
+characters) with `status: "cancelled"`. It is required when the booking was
+already confirmed and optional when a pending request is declined or
+withdrawn; a missing required reason, or a reason on any other transition,
+returns `422`. The booking then reports `cancelled_by` (`client` or
+`provider`) and `cancellation_reason`, and the other party's notification
+ends with the reason. Bookings cancelled before the migration keep both
+fields `null`.
+
 ## Post-job reviews (#77)
 
 Apply `database/migrations/003_booking_reviews.sql` to existing databases

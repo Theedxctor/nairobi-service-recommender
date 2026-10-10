@@ -4,7 +4,7 @@ import React, { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { readAuth, useAuthGuard } from "../../use-auth-guard";
-import { StatusPill } from "../../bookings-list";
+import { CancellationNote, StatusPill } from "../../bookings-list";
 import { API_BASE_URL, NETWORK_ERROR_MESSAGE, apiErrorMessage } from "@/lib/api";
 import {
   Booking,
@@ -261,6 +261,7 @@ function Confirmation({ bookingId }: { bookingId: number }) {
             }
           />
         </dl>
+        <CancellationNote booking={booking} role="client" />
       </section>
 
       <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
