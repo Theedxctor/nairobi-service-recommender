@@ -141,6 +141,11 @@ class PredictResponse(BaseModel):
 class RecommendRequest(ContextFields, LocationFields):
     service_type: str = Field(..., examples=["plumber"])
     top_n: Optional[int] = 5
+    # Optional filters (#79), applied after ranking and before the top_n cut:
+    # they only remove providers, never change a score or the order.
+    max_hourly_rate_ksh: Optional[int] = Field(None, ge=1)
+    min_rating: Optional[float] = Field(None, ge=1, le=5)
+    verified_only: bool = False
 
 
 class NewProvidersRequest(RecommendRequest):
@@ -160,6 +165,7 @@ class RankedProvider(BaseModel):
     rating: Optional[float] = None  # None until a new provider has been rated
     review_count: int = 0  # live NaiServe reviews, not imported dataset history
     is_new: bool = False  # no job history yet; score uses the cold-start prior (#52)
+    is_verified: bool = False
     explanation: str
 
 
@@ -831,15 +837,30 @@ def _rank_available(req):
             rating=None if pd.isna(provider_row["rating"]) else float(provider_row["rating"]),
             explanation=_explain(features, provider_row),
             is_new=not features["provider_has_history"],
+            is_verified=False if pd.isna(provider_row["is_verified"]) else bool(provider_row["is_verified"]),
         ))
 
     ranked.sort(key=lambda r: r.reliability_score, reverse=True)
     return ranked
 
 
+def _apply_filters(ranked, req):
+    """Drop providers that fail the request's optional filters (#79), keeping
+    the reliability order. Runs on the full ranked list so a match at rank 11+
+    is still found. min_rating compares current ratings (live reviews where
+    they exist) and excludes providers with no rating at all."""
+    if req.max_hourly_rate_ksh is not None:
+        ranked = [p for p in ranked if p.hourly_rate_ksh <= req.max_hourly_rate_ksh]
+    if req.verified_only:
+        ranked = [p for p in ranked if p.is_verified]
+    if req.min_rating is not None:
+        ranked = [p for p in _current_ratings(ranked) if p.rating is not None and p.rating >= req.min_rating]
+    return ranked
+
+
 @app.post("/recommend", response_model=list[RankedProvider])
 def recommend(req: RecommendRequest):
-    return _current_ratings(_rank_available(req)[: req.top_n])
+    return _current_ratings(_apply_filters(_rank_available(req), req)[: req.top_n])
 
 
 @app.post("/recommend/new-providers", response_model=list[RankedProvider])
@@ -856,6 +877,7 @@ def recommend_new_providers(req: NewProvidersRequest):
         if e.status_code == 404:
             return []  # nothing available at all; the main list reports that
         raise
+    ranked = _apply_filters(ranked, req)
     shown = {r.provider_id for r in ranked[: req.top_n]}
     return _current_ratings([r for r in ranked if r.is_new and r.provider_id not in shown][: req.limit])
 
