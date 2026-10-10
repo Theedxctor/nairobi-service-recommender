@@ -25,4 +25,71 @@ export DB_PASSWORD=your_password
 ```
 
 If no database is reachable, it falls back to the `data/raw/*.csv` files so
-local dev/tests still work without Docker/Postgres running.
+prediction previews can still run without Docker/Postgres. Booking, profile,
+review and recommendation responses require PostgreSQL (recommendations read
+current ratings rather than serving stale imported values).
+
+## Post-job reviews (#77)
+
+Apply `database/migrations/003_booking_reviews.sql` to existing databases
+**before deploying this API version**. For local Docker, with the `PGPASSWORD`
+environment variable set:
+
+```bash
+psql -h localhost -p 5433 -U postgres -d nairobi_recommender \
+  -v ON_ERROR_STOP=1 -f database/migrations/003_booking_reviews.sql
+```
+
+Run this command from the repository root. Fresh installations use
+`database/schema.sql`, which already includes the table. The migration is
+additive and rerunnable; it does not create reviews for imported data. For
+Neon, test the migration on a development branch and use its direct connection
+for migration, then apply to the deployment database before releasing the API.
+
+`POST /bookings/{booking_id}/review` accepts:
+
+```json
+{"client_id": "C0501", "rating": 4, "comment": "Clear communication."}
+```
+
+- Rating must be an integer 1–5. Comment is optional, trimmed, at most 1000 characters.
+- Only the booking's client can submit, and only after completion. This uses
+  the existing **claimed client ID**, not authenticated sessions.
+- One immutable review per booking: duplicates and non-completed bookings
+  return 409, wrong client 403, missing booking 404, invalid input 422.
+- Returns the updated booking; `GET /bookings` includes `review` for both
+  participants. Clients submit from My Bookings; providers see feedback in Jobs.
+- The review, provider's rounded mean rating, and notification commit together.
+  Booking and provider row locks serialise conflicting updates.
+- The first real review replaces the imported rating. Later ratings are the
+  mean of **live reviews only**. No weighting by synthetic `total_jobs`.
+  `review_count` distinguishes live reviews from imported dataset ratings.
+- Recommendations fetch ratings in one batched DB query per response, so all
+  API workers see committed updates without restarting. Previously saved search
+  results remain a snapshot; a new search gets current ratings.
+- Reviews never write to `historical_bookings` or alter model inputs. Updating
+  live completion-rate history is a separate follow-up from review ratings.
+
+Schema addition (the earlier diagram exports predate reviews):
+
+```mermaid
+erDiagram
+    bookings ||--o| booking_reviews : "has feedback"
+    booking_reviews {
+        integer booking_id PK,FK
+        smallint rating
+        varchar comment
+        timestamptz created_at
+    }
+```
+
+Verification from the repository root, with `DB_*` set to a **local** database:
+
+```bash
+RUN_DB_TESTS=1 ml-service/.venv/bin/python -m pytest tests/ml-service -q
+```
+
+The review integration tests create and drop isolated schemas; they exercise
+constraints, concurrent submissions, ownership/state checks, aggregation and
+transaction rollback. With the local API/frontend running, run
+`npx playwright test reviews.spec.ts` from `tests/e2e` for the two-role browser flow.

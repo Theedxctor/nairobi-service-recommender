@@ -186,8 +186,8 @@ export default function ResultsPage() {
               New on NaiServe
             </h2>
             <p className="mt-1 text-sm text-stone-600">
-              These providers joined recently and have no completed jobs yet, so their
-              reliability score assumes a typical (platform-median) completion rate. They
+               These providers have no recorded completion-rate history yet, so their
+               reliability score assumes a typical (platform-median) completion rate. They
               are shown here rather than ranked alongside providers with a track record.
             </p>
           </div>
@@ -218,7 +218,7 @@ function ProviderCard({ provider, rankLabel }: { provider: RankedProvider; rankL
               {provider.name}
             </h2>
             <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-              {ratingLabel(provider.rating)}
+              {ratingLabel(provider.rating, provider.review_count)}
             </span>
           </div>
 
