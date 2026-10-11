@@ -21,7 +21,8 @@ export interface RecommendRequest {
   client_lng?: number;
   service_type: string;
   time_slot: string;
-  day_type: string;
+  day_type: string; // derived from job_date when one is sent
+  job_date?: string; // "YYYY-MM-DD" (#82); absent on searches saved before dates
   top_n: number;
   // Optional filters (#79). The API applies them before the top_n cut.
   max_hourly_rate_ksh?: number;
@@ -70,6 +71,48 @@ export function ratingLabel(rating: number | null, reviewCount = 0): string {
   return `★ ${rating.toFixed(1)} · ${source}`;
 }
 
+// Job dates (#82) are plain calendar dates ("2026-10-13"). They are built and
+// parsed as local dates, never via UTC, so the weekday cannot shift by a day.
+export const JOB_DATE_MAX_DAYS_AHEAD = 60; // matches ml-service/api.py
+
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+export function toIsoDate(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+export function parseJobDate(iso: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso);
+  if (!m) return null;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  return toIsoDate(d) === iso ? d : null; // rejects e.g. 2026-02-30
+}
+
+export function dayNameOf(iso: string): string | null {
+  const d = parseJobDate(iso);
+  return d ? DAY_NAMES[d.getDay()] : null;
+}
+
+export function dayTypeOf(iso: string): "weekday" | "weekend" | null {
+  const d = parseJobDate(iso);
+  if (!d) return null;
+  return d.getDay() === 0 || d.getDay() === 6 ? "weekend" : "weekday";
+}
+
+/** "Tue 13 Oct 2026" - the same form the API uses in notifications. */
+export function formatJobDate(iso: string): string {
+  const d = parseJobDate(iso);
+  if (!d) return iso;
+  return `${DAY_NAMES[d.getDay()].slice(0, 3)} ${d.getDate()} ${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+/** The job's date, or its day type for requests and bookings that have no date. */
+export function whenLabel(item: { job_date?: string | null; day_type: string }): string {
+  return item.job_date ? formatJobDate(item.job_date) : capitalize(item.day_type);
+}
+
 export function capitalize(text: string): string {
   return text.charAt(0).toUpperCase() + text.slice(1);
 }
@@ -86,6 +129,7 @@ export interface Booking {
   client_area: string;
   time_slot: string;
   day_type: string;
+  job_date?: string | null; // null for bookings made before dates were collected (#82)
   reliability_score: number | null;
   status: "pending" | "confirmed" | "completed" | "cancelled";
   // Set when cancelled (#81); null for bookings cancelled before this was recorded.

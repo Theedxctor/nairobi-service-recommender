@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { API_BASE_URL, NETWORK_ERROR_MESSAGE, apiErrorMessage } from "@/lib/api";
-import { Booking, TIME_SLOT_LABELS, capitalize } from "@/lib/recommendation";
+import { Booking, TIME_SLOT_LABELS, capitalize, whenLabel } from "@/lib/recommendation";
 
 export type BookingRole = "client" | "provider";
 
@@ -248,7 +248,7 @@ export function BookingCard({
           </div>
           <p className="text-sm text-stone-600">
             {capitalize(booking.service_type)} · {booking.client_area} ·{" "}
-            {TIME_SLOT_LABELS[booking.time_slot] ?? booking.time_slot} · {capitalize(booking.day_type)}
+            {TIME_SLOT_LABELS[booking.time_slot] ?? booking.time_slot} · {whenLabel(booking)}
           </p>
           <p className="text-xs text-stone-400">
             {role === "client" ? (
