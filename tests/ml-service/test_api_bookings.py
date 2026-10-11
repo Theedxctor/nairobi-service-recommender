@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import date, datetime
 from unittest.mock import MagicMock
 
 import pytest
@@ -48,8 +48,9 @@ def db(monkeypatch):
     state.notifications = []
     state.inserted = None
 
-    def insert_booking(cursor, *args):
+    def insert_booking(cursor, *args, **kwargs):
         state.inserted = args
+        state.inserted_kwargs = kwargs
         return 7
 
     def update_status(cursor, booking_id, status, cancelled_by=None, reason=None):
@@ -240,3 +241,81 @@ def test_reason_longer_than_300_characters_is_rejected(client, db):
 def test_non_cancelled_bookings_report_no_cancellation(client, db):
     body = _patch(client, "confirmed", "provider", "P0023").json()
     assert body["cancelled_by"] is None and body["cancellation_reason"] is None
+
+
+# ---------------------------------------------------------------------------
+# Job dates (#82)
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def monday(monkeypatch):
+    """Freeze "today in Nairobi" on Monday 12 Oct 2026."""
+    monkeypatch.setattr(api, "_today_in_nairobi", lambda: date(2026, 10, 12))
+
+
+def _dated_body(job_date, **over):
+    body = {k: v for k, v in CREATE_BODY.items() if k != "day_type"}
+    return {**body, "job_date": job_date, **over}
+
+
+def test_booking_stores_the_date_and_derives_the_day_type(client, db, monday):
+    db.booking = _booking(job_date=date(2026, 10, 13))
+    res = client.post("/bookings", json=_dated_body("2026-10-13"))
+
+    assert res.status_code == 201, res.text
+    assert res.json()["job_date"] == "2026-10-13"
+    assert db.inserted[5] == "weekday"  # derived: the request sent no day_type
+    assert db.inserted_kwargs["job_date"] == date(2026, 10, 13)
+    assert all("Tue 13 Oct 2026" in message for _, message in db.notifications)
+
+
+def test_booking_score_does_not_depend_on_the_date(client, db, monday):
+    client.post("/bookings", json=_dated_body("2026-10-13"))
+    dated_score = db.inserted[6]
+    client.post("/bookings", json=_dated_body("2026-10-15"))
+    assert db.inserted[6] == dated_score
+    client.post("/bookings", json=CREATE_BODY)  # same slot and day type, no date
+    assert db.inserted[6] == dated_score
+    assert db.inserted_kwargs["job_date"] is None
+
+
+def test_booking_checks_availability_on_that_weekday(client, db, monday, monkeypatch):
+    # P0023 keeps only its Monday hours: bookable on a Monday, not on a Tuesday,
+    # although both are "weekday".
+    slots = api.ref["availability"]
+    monday_only = slots.loc[(slots.provider_id != "P0023")
+                            | (slots.day_of_week.str.lower() == "monday")]
+    assert (monday_only.provider_id == "P0023").any()
+    monkeypatch.setitem(api.ref, "availability", monday_only)
+
+    assert client.post("/bookings", json=_dated_body("2026-10-19")).status_code == 201
+    refused = client.post("/bookings", json=_dated_body("2026-10-13"))
+    assert refused.status_code == 409
+    assert client.post("/bookings", json=CREATE_BODY).status_code == 201  # undated: any weekday
+
+
+@pytest.mark.parametrize("body, phrase", [
+    (_dated_body("2026-10-11"), "past"),
+    (_dated_body("2026-12-12"), "60 days"),
+    (_dated_body("2026-10-13", day_type="weekend"), "Tuesday"),
+    (_dated_body("13/10/2026"), "date"),
+    ({k: v for k, v in CREATE_BODY.items() if k != "day_type"}, "job_date or day_type"),
+])
+def test_invalid_job_dates_are_rejected(client, db, monday, body, phrase):
+    res = client.post("/bookings", json=body)
+    assert res.status_code == 422
+    assert phrase in str(res.json()["detail"])
+    assert db.inserted is None
+
+
+@pytest.mark.parametrize("job_date, day_type", [("2026-10-12", "weekday"), ("2026-12-11", "weekday"),
+                                                ("2026-10-17", "weekend")])
+def test_today_the_last_allowed_day_and_weekends_are_accepted(client, db, monday, job_date, day_type):
+    res = client.post("/bookings", json=_dated_body(job_date, time_slot="midday"))
+    assert res.status_code in (201, 409), res.text  # 409 = valid date, provider off that day
+    if res.status_code == 201:
+        assert db.inserted[5] == day_type
+
+
+def test_undated_booking_label_falls_back_to_the_day_type(client, db):
+    _patch(client, "confirmed", "provider", "P0023")
+    assert "morning rush, weekday)" in db.notifications[0][1]

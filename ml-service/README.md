@@ -41,6 +41,22 @@ When nothing matches, the response is `200` with an empty list (`404` still
 means no provider offers the service or none is available). Each ranked
 provider also reports `is_verified`.
 
+## Dated scheduling (#82)
+
+Apply `database/migrations/005_booking_job_date.sql` to existing databases
+**before** running this API version (booking queries select the new column).
+It is safe to rerun.
+
+`POST /recommend`, `/recommend/new-providers`, `/predict` and `/bookings`
+accept `job_date` (`YYYY-MM-DD`, a Nairobi calendar date from today up to 60
+days ahead). `day_type` is then derived from it and may be omitted; sending
+one that contradicts the date, or neither field, returns `422`. With a date,
+availability is checked for that date's own weekday, so a provider who works
+other weekdays is not offered and booking them returns `409`. The date is not
+a model feature: scores are the same as for an undated request with the same
+`time_slot` and `day_type`. Bookings report `job_date`, and notifications name
+it; bookings made before the migration keep `null` and show their day type.
+
 ## Cancellation reasons (#81)
 
 Apply `database/migrations/004_cancellation_reasons.sql` to existing databases
