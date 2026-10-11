@@ -89,13 +89,29 @@ export async function login(page: Page, email: string, password: string) {
   await page.waitForURL(/dashboard/);
 }
 
+// A weekday at least two days ahead (#82), so runs behave the same on any day
+// of the week and near midnight. Test providers work Monday to Friday.
+function nextWeekday(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 2);
+  while (d.getDay() === 0 || d.getDay() === 6) d.setDate(d.getDate() + 1);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+export const JOB_DATE = nextWeekday();
+
 export const RECOMMEND_BODY = {
   client_area: "Kilimani",
   service_type: "plumber",
   time_slot: "midday",
   day_type: "weekday",
+  job_date: JOB_DATE,
 };
 
+/** Waits for the request form's options, then sets the job date to JOB_DATE
+ * (the form defaults to today, which may be a weekend). */
 export async function waitForRequestForm(page: Page) {
   await page.waitForSelector('#clientArea option[value="Kilimani"]', { state: "attached" });
+  await page.fill("#jobDate", JOB_DATE);
 }

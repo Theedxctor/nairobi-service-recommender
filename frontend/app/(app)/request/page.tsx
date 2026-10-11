@@ -10,9 +10,14 @@ import { API_BASE_URL, NETWORK_ERROR_MESSAGE, apiErrorMessage } from "@/lib/api"
 import {
   RankedProvider,
   RecommendRequest,
+  JOB_DATE_MAX_DAYS_AHEAD,
   TIME_SLOT_LABELS,
   capitalize,
+  dayNameOf,
+  dayTypeOf,
+  formatJobDate,
   saveRecommendation,
+  toIsoDate,
 } from "@/lib/recommendation";
 
 export default function RequestPage() {
@@ -28,7 +33,11 @@ export default function RequestPage() {
   const [locationMode, setLocationMode] = useState<"home" | "point" | "area">("area");
   const [point, setPoint] = useState<LatLng | null>(null);
   const [pointArea, setPointArea] = useState<LocateResult | null>(null);
-  const [dayType, setDayType] = useState("weekday");
+  // Job date (#82). Empty until mounted so server and browser render the same HTML.
+  const [jobDate, setJobDate] = useState("");
+  const [today, setToday] = useState("");
+  const [lastDay, setLastDay] = useState("");
+  const dayType = dayTypeOf(jobDate);
   const [timeSlot, setTimeSlot] = useState("morning_rush");
   const [optionsState, setOptionsState] = useState<"loading" | "ready" | "failed">("loading");
   const [submitting, setSubmitting] = useState(false);
@@ -54,6 +63,14 @@ export default function RequestPage() {
 
   useEffect(loadOptions, [loadOptions]);
 
+  useEffect(() => {
+    const now = new Date();
+    const last = new Date(now.getFullYear(), now.getMonth(), now.getDate() + JOB_DATE_MAX_DAYS_AHEAD);
+    setToday(toIsoDate(now));
+    setLastDay(toIsoDate(last));
+    setJobDate(toIsoDate(now));
+  }, []);
+
   // Saved home location from the profile, if the client shared one.
   useEffect(() => {
     const auth = readAuth();
@@ -72,6 +89,10 @@ export default function RequestPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
+    if (!dayType || jobDate < today || jobDate > lastDay) {
+      setError(`Choose a date from today up to ${JOB_DATE_MAX_DAYS_AHEAD} days ahead.`);
+      return;
+    }
     setSubmitting(true);
 
     let where: Pick<RecommendRequest, "client_area" | "client_lat" | "client_lng"> = { client_area: clientArea };
@@ -90,6 +111,7 @@ export default function RequestPage() {
       service_type: serviceType,
       time_slot: timeSlot,
       day_type: dayType,
+      job_date: jobDate,
       top_n: 10,
     };
 
@@ -103,7 +125,7 @@ export default function RequestPage() {
       if (res.status === 404) {
         // No provider of this type, or none available at this day/time.
         setError(
-          `No ${serviceType} is available in that slot. Try a different time slot or day.`
+          `No ${serviceType} is available on ${formatJobDate(jobDate)} in that slot. Try a different date or time slot.`
         );
         return;
       }
@@ -284,54 +306,27 @@ export default function RequestPage() {
             </select>
           </div>
 
-          {/* Preferred Day */}
-          <fieldset>
-            <legend className="block text-sm font-medium text-stone-700 mb-2">
-              Preferred Day
-            </legend>
-            <div className="grid grid-cols-2 gap-4">
-              <label
-                className={`relative flex items-center justify-center p-3 rounded-lg border cursor-pointer text-sm font-medium transition-colors ${
-                  dayType === "weekday"
-                    ? "border-teal-600 bg-teal-50 text-teal-700 ring-1 ring-teal-600"
-                    : "border-stone-200 bg-white text-stone-700 hover:bg-stone-50"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="dayType"
-                  value="weekday"
-                  checked={dayType === "weekday"}
-                  onChange={() => setDayType("weekday")}
-                  className="peer sr-only"
-                />
-                <span className="peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-teal-600 rounded">
-                  Weekday (Mon - Fri)
-                </span>
-              </label>
-
-              <label
-                className={`relative flex items-center justify-center p-3 rounded-lg border cursor-pointer text-sm font-medium transition-colors ${
-                  dayType === "weekend"
-                    ? "border-teal-600 bg-teal-50 text-teal-700 ring-1 ring-teal-600"
-                    : "border-stone-200 bg-white text-stone-700 hover:bg-stone-50"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name="dayType"
-                  value="weekend"
-                  checked={dayType === "weekend"}
-                  onChange={() => setDayType("weekend")}
-                  className="peer sr-only"
-                />
-                <span className="peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-teal-600 rounded">
-                  Weekend (Sat - Sun)
-                </span>
-              </label>
-            </div>
-          </fieldset>
-
+          {/* Job date (#82): the day type is derived from it */}
+          <div>
+            <label htmlFor="jobDate" className="block text-sm font-medium text-stone-700 mb-1">
+              Date
+            </label>
+            <input
+              id="jobDate"
+              type="date"
+              required
+              value={jobDate}
+              min={today}
+              max={lastDay}
+              onChange={(e) => setJobDate(e.target.value)}
+              className="w-full px-3.5 py-2.5 rounded-lg border border-stone-300 bg-white text-stone-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-sm"
+            />
+            <p className="mt-1 text-xs text-stone-500" aria-live="polite">
+              {dayType
+                ? `${dayNameOf(jobDate)}: only providers who work ${dayNameOf(jobDate)}s are shown, scored with ${dayType} traffic.`
+                : `Choose a date from today up to ${JOB_DATE_MAX_DAYS_AHEAD} days ahead.`}
+            </p>
+          </div>
 
           {/* Preferred Time Slot */}
           <div>

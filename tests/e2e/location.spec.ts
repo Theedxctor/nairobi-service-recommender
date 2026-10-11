@@ -1,5 +1,5 @@
 import { test, expect, request } from "@playwright/test";
-import { API, PASSWORD, login, waitForRequestForm } from "./fixtures";
+import { API, JOB_DATE, PASSWORD, login, waitForRequestForm } from "./fixtures";
 
 // #72/#73: exact client location, with emulated browser geolocation.
 const KILIMANI = { latitude: -1.29, longitude: 36.785, accuracy: 25 };
@@ -43,7 +43,7 @@ test("client signs up with exact location, requests from home, booking stores th
 
   // Ranked list == API scored from the same exact point.
   const api = await request.newContext();
-  const body = { service_type: "plumber", time_slot: "midday", day_type: "weekday", top_n: 10,
+  const body = { service_type: "plumber", time_slot: "midday", day_type: "weekday", job_date: JOB_DATE, top_n: 10,
                  client_lat: KILIMANI.latitude, client_lng: KILIMANI.longitude };
   const expected = (await (await api.post(`${API}/recommend`, { data: body })).json()).map((p: { name: string }) => p.name);
   expect(await page.locator("[aria-live=polite] h2").allInnerTexts()).toEqual(expected);

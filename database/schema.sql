@@ -186,6 +186,9 @@ CREATE TABLE bookings (
     client_area VARCHAR(50) NOT NULL,
     time_slot VARCHAR(20) NOT NULL,
     day_type VARCHAR(20) NOT NULL,
+    -- Calendar date of the job (#82). NULL for bookings made before dates were
+    -- collected. day_type is derived from it; the date is never a model feature.
+    job_date DATE,
     reliability_score DECIMAL(4,3),
     -- Exact job location the score was computed for (NULL = area centroid used)
     client_lat DECIMAL(9,6),

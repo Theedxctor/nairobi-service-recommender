@@ -13,6 +13,7 @@ import {
   ratingLabel,
   readRecommendation,
   saveRecommendation,
+  whenLabel,
 } from "@/lib/recommendation";
 
 type SortKey = "reliability" | "distance" | "price" | "rating";
@@ -216,7 +217,7 @@ export default function ResultsPage() {
             {capitalize(request.service_type)}{" "}
             {request.client_lat !== undefined ? `near ${request.client_area} (exact location)` : `in ${request.client_area}`} ·{" "}
             {TIME_SLOT_LABELS[request.time_slot] ?? request.time_slot} ·{" "}
-            {capitalize(request.day_type)}
+            {whenLabel(request)}
           </p>
           <p className="text-xs text-stone-500 mt-0.5">
             Ranked by context-aware arrival reliability and location factors
