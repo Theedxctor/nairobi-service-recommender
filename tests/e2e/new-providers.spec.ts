@@ -1,14 +1,18 @@
 import { test, expect, request } from "@playwright/test";
-import { API, createClient, createProvider, login, retireProvider, waitForRequestForm } from "./fixtures";
+import { API, JOB_DATE, createClient, createProvider, login, retireProvider, waitForRequestForm } from "./fixtures";
 
 // #61: providers with no history rank below the top 10 and get their own
 // "New on NaiServe" section. A carpenter is used so our fresh provider is the
 // only new one for this search, and tests never book real accounts.
-const BODY = { client_area: "Kilimani", service_type: "carpenter", time_slot: "midday", day_type: "weekday" };
+const BODY = { client_area: "Kilimani", service_type: "carpenter", time_slot: "midday", day_type: "weekday", job_date: JOB_DATE };
 
 test("New on NaiServe lists new providers outside the top 10 and they can be booked", async ({ page }) => {
   const client = await createClient();
-  const provider = await createProvider({ service_type: "carpenter", name: "E2E New Carpenter" });
+  // Based far from the client (Athi River), so the provider ranks below the top
+  // 10 whichever weekday the search is for. With dated requests (#82) a nearby
+  // new provider can rank inside the top 10 when others are off that day, and
+  // is then shown in the main list instead of this section.
+  const provider = await createProvider({ service_type: "carpenter", name: "E2E New Carpenter", base_area_id: "A30" });
   const api = await request.newContext();
   try {
     await login(page, client.email, client.password);

@@ -87,7 +87,7 @@ def test_booking_stores_exact_point_and_derived_area(client, monkeypatch):
     monkeypatch.setattr(api, "_get_db_connection", lambda: MagicMock())
     monkeypatch.setattr(api, "_client_exists", lambda *a: True)
     monkeypatch.setattr(api, "is_provider_available", lambda *a, **k: True)
-    monkeypatch.setattr(api, "_insert_booking", lambda cursor, *args: inserted.setdefault("args", args) and 1)
+    monkeypatch.setattr(api, "_insert_booking", lambda cursor, *args, **kwargs: inserted.setdefault("args", args) and 1)
     monkeypatch.setattr(api, "_fetch_booking", lambda *a: {
         "booking_id": 1, "client_id": "C0001", "provider_id": "P0023", "service_type": "plumber",
         "client_area": "Kilimani", "time_slot": "midday", "day_type": "weekday", "reliability_score": 0.9,

@@ -26,7 +26,7 @@ Docs at:   http://localhost:8000/docs
 """
 import os
 import re
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -94,9 +94,23 @@ def _canonical(value, allowed, field_name):
     return normalised
 
 
+# Job dates (#82) are Nairobi calendar dates. East Africa Time is UTC+3 all
+# year, so a fixed offset is exact and needs no timezone database.
+NAIROBI_TZ = timezone(timedelta(hours=3))
+JOB_DATE_MAX_DAYS_AHEAD = 60
+
+
+def _today_in_nairobi():
+    return datetime.now(NAIROBI_TZ).date()
+
+
 class ContextFields(BaseModel):
     time_slot: str = Field(..., examples=["evening_rush"])
-    day_type: str = Field(..., examples=["weekday"])
+    # Send job_date, day_type, or both if they agree. With a date, day_type is
+    # derived from it and availability is checked for that weekday. The model
+    # only ever sees day_type/time_slot: the date itself is not a feature.
+    day_type: Optional[str] = Field(None, examples=["weekday"])
+    job_date: Optional[date] = Field(None, examples=["2026-10-13"])
 
     @field_validator("time_slot")
     @classmethod
@@ -106,7 +120,31 @@ class ContextFields(BaseModel):
     @field_validator("day_type")
     @classmethod
     def _check_day_type(cls, v):
-        return _canonical(v, DAY_TYPES, "day_type")
+        return None if v is None else _canonical(v, DAY_TYPES, "day_type")
+
+    @model_validator(mode="after")
+    def _day_from_date(self):
+        if self.job_date is None:
+            if self.day_type is None:
+                raise ValueError("Send job_date or day_type.")
+            return self
+        today = _today_in_nairobi()
+        if self.job_date < today:
+            raise ValueError("job_date cannot be in the past.")
+        if self.job_date > today + timedelta(days=JOB_DATE_MAX_DAYS_AHEAD):
+            raise ValueError(f"job_date cannot be more than {JOB_DATE_MAX_DAYS_AHEAD} days ahead.")
+        derived = "weekend" if self.job_date.weekday() >= 5 else "weekday"
+        if self.day_type is not None and self.day_type != derived:
+            raise ValueError(f"{self.job_date.isoformat()} is a {self.job_date.strftime('%A')}, "
+                             f"so day_type must be '{derived}'.")
+        self.day_type = derived
+        return self
+
+    @property
+    def availability_day(self):
+        """What availability is checked against: the date's own weekday when a
+        date was given, otherwise any day of the requested day type."""
+        return self.job_date.strftime("%A") if self.job_date else self.day_type
 
 class LocationFields(BaseModel):
     """Exact job location (#72). When sent, it is used for distance (the model
@@ -277,6 +315,7 @@ class BookingResponse(BaseModel):
     client_area: str
     time_slot: str
     day_type: str
+    job_date: Optional[date] = None  # None for bookings made before dates were collected
     reliability_score: Optional[float] = None
     client_lat: Optional[float] = None  # exact job location, if the client shared one
     client_lng: Optional[float] = None
@@ -519,7 +558,7 @@ _BOOKING_SELECT = """
            b.service_type, b.client_area, b.time_slot, b.day_type, b.reliability_score,
            b.status, b.created_at, b.client_lat, b.client_lng,
            r.rating, r.comment, r.created_at,
-           b.cancelled_by, b.cancellation_reason
+           b.cancelled_by, b.cancellation_reason, b.job_date
     FROM bookings b
     LEFT JOIN clients c ON b.client_id = c.client_id
     LEFT JOIN service_providers sp ON b.provider_id = sp.provider_id
@@ -549,6 +588,7 @@ def _row_to_booking(row):
         if row[15] is not None else None,
         "cancelled_by": row[18],
         "cancellation_reason": row[19],
+        "job_date": row[20],
     }
 
 
@@ -558,17 +598,17 @@ def _client_exists(cursor, client_id):
 
 
 def _insert_booking(cursor, client_id, provider_id, service_type, client_area, time_slot, day_type,
-                    reliability_score, client_lat=None, client_lng=None):
+                    reliability_score, client_lat=None, client_lng=None, job_date=None):
     cursor.execute(
         """
         INSERT INTO bookings
             (client_id, provider_id, service_type, client_area, time_slot, day_type, reliability_score,
-             client_lat, client_lng)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+             client_lat, client_lng, job_date)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING booking_id
         """,
         (client_id, provider_id, service_type, client_area, time_slot, day_type, reliability_score,
-         client_lat, client_lng),
+         client_lat, client_lng, job_date),
     )
     return cursor.fetchone()[0]
 
@@ -636,7 +676,9 @@ def _user_id_for(cursor, column, value):
 
 def _booking_label(booking):
     slot = booking["time_slot"].replace("_", " ")
-    return f"booking #{booking['booking_id']} ({booking['service_type']}, {booking['client_area']}, {slot}, {booking['day_type']})"
+    job_date = booking.get("job_date")
+    when = job_date.strftime("%a %d %b %Y") if job_date else booking["day_type"]
+    return f"booking #{booking['booking_id']} ({booking['service_type']}, {booking['client_area']}, {slot}, {when})"
 
 
 def _status_change_notice(booking, new_status, actor, reason=None):
@@ -812,14 +854,14 @@ def _rank_available(req):
         candidate_ids = set(candidates["provider_id"].astype(str))
         availability_df = availability_df.loc[availability_df["provider_id"].astype(str).isin(candidate_ids)]
     available_mask = candidates["provider_id"].apply(
-        lambda pid: is_provider_available(pid, req.day_type, req.time_slot, availability_df)
+        lambda pid: is_provider_available(pid, req.availability_day, req.time_slot, availability_df)
     )
     available_candidates = candidates.loc[available_mask]
 
     if available_candidates.empty:
         raise HTTPException(
             404,
-            f"Providers exist for service_type '{req.service_type}', but none are available for day_type '{req.day_type}' and time_slot '{req.time_slot}'."
+            f"Providers exist for service_type '{req.service_type}', but none are available on '{req.availability_day}' for time_slot '{req.time_slot}'."
         )
 
     # Build every candidate's features (sharing area/traffic lookups), then
@@ -1062,7 +1104,7 @@ def create_booking(req: BookingCreateRequest):
     if client_area not in set(ref["areas"]["area_name"]):
         raise HTTPException(422, f"Unknown client_area: {client_area}")
 
-    if not is_provider_available(req.provider_id, req.day_type, req.time_slot, ref.get("availability")):
+    if not is_provider_available(req.provider_id, req.availability_day, req.time_slot, ref.get("availability")):
         raise HTTPException(409, "This provider is not available for that day and time slot.")
 
     # Recompute rather than trusting a score sent by the browser.
@@ -1080,6 +1122,7 @@ def create_booking(req: BookingCreateRequest):
             cursor, req.client_id, req.provider_id, service_type, client_area,
             req.time_slot, req.day_type, score,
             *(client_latlng or (None, None)),
+            job_date=req.job_date,
         )
         booking = _fetch_booking(cursor, booking_id)
 

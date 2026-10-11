@@ -12,6 +12,7 @@ import {
   RecommendRequest,
   TIME_SLOT_LABELS,
   capitalize,
+  whenLabel,
   ratingLabel,
   readRecommendation,
 } from "@/lib/recommendation";
@@ -97,6 +98,7 @@ function Review({ providerId }: { providerId: string | null }) {
           client_lng: request.client_lng,
           time_slot: request.time_slot,
           day_type: request.day_type,
+          job_date: request.job_date,
         }),
       });
       const data = await res.json().catch(() => null);
@@ -140,7 +142,7 @@ function Review({ providerId }: { providerId: string | null }) {
           <Detail label="Service" value={capitalize(request.service_type)} />
           <Detail label="Your area" value={request.client_area} />
           <Detail label="Time" value={TIME_SLOT_LABELS[request.time_slot] ?? request.time_slot} />
-          <Detail label="Day" value={capitalize(request.day_type)} />
+          <Detail label={request.job_date ? "Date" : "Day"} value={whenLabel(request)} />
           <Detail label="Estimated travel" value={`${provider.estimated_travel_min} min`} />
           <Detail label="Distance" value={`${provider.distance_km} km`} />
         </dl>
@@ -243,7 +245,7 @@ function Confirmation({ bookingId }: { bookingId: number }) {
           <Detail label="Service" value={capitalize(booking.service_type)} />
           <Detail label="Your area" value={booking.client_area} />
           <Detail label="Time" value={TIME_SLOT_LABELS[booking.time_slot] ?? booking.time_slot} />
-          <Detail label="Day" value={capitalize(booking.day_type)} />
+          <Detail label={booking.job_date ? "Date" : "Day"} value={whenLabel(booking)} />
           <Detail
             label="Predicted reliability"
             value={
