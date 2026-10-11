@@ -45,6 +45,27 @@ export function StatusPill({ status }: { status: Status }) {
   );
 }
 
+const REASON_MAX = 300; // matches BookingStatusUpdate.reason in ml-service/api.py
+
+/** Who cancelled a booking and why (#81). Renders nothing when that was never
+ * recorded, rather than guessing. */
+export function CancellationNote({ booking, role }: { booking: Booking; role: BookingRole }) {
+  if (booking.status !== "cancelled" || !booking.cancelled_by) return null;
+  const who = booking.cancelled_by === role ? "you" : `the ${booking.cancelled_by}`;
+  return (
+    <div className="mt-4 border-t border-stone-100 pt-4" role="status">
+      <p className="text-sm font-semibold text-stone-800">Cancelled by {who}</p>
+      {booking.cancellation_reason ? (
+        <p className="mt-1 whitespace-pre-wrap break-words text-sm text-stone-600">
+          Reason: {booking.cancellation_reason}
+        </p>
+      ) : (
+        <p className="mt-1 text-sm text-stone-400">No reason was given.</p>
+      )}
+    </div>
+  );
+}
+
 export const isActive = (b: Booking) => b.status === "pending" || b.status === "confirmed";
 
 /** Loads GET /bookings for one client or provider. */
@@ -174,34 +195,48 @@ export function BookingCard({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Label of the cancel/decline action being confirmed, or null (#81).
+  const [cancelLabel, setCancelLabel] = useState<string | null>(null);
+  const [reason, setReason] = useState("");
   const actions = onUpdated ? ACTIONS[role][booking.status] ?? [] : [];
+  // Breaking a confirmed booking needs a reason; the API enforces this too.
+  const reasonRequired = booking.status === "confirmed";
   const counterpart =
     role === "client"
       ? booking.provider_name ?? booking.provider_id
       : booking.client_name ?? booking.client_id;
 
-  const act = async (to: Status, label: string) => {
-    if (to === "cancelled" && !window.confirm(`${label.split(" ")[0]} booking #${booking.booking_id}?`)) return;
+  const act = async (to: Status, cancelReason?: string) => {
     setBusy(true);
     setError(null);
     try {
       const res = await fetch(`${API_BASE_URL}/bookings/${booking.booking_id}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ status: to, actor: role, actor_id: ownerId }),
+        body: JSON.stringify({
+          status: to,
+          actor: role,
+          actor_id: ownerId,
+          ...(cancelReason && { reason: cancelReason }),
+        }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
         setError(apiErrorMessage(data));
         return;
       }
+      setCancelLabel(null);
+      setReason("");
       onUpdated?.(data as Booking);
     } catch {
+      // The typed reason stays in the form so it can be sent again.
       setError(NETWORK_ERROR_MESSAGE);
     } finally {
       setBusy(false);
     }
   };
+
+  const reasonId = `cancel-reason-${booking.booking_id}`;
 
   return (
     <article className="rounded-lg border border-stone-200 bg-white p-5">
@@ -229,14 +264,14 @@ export function BookingCard({
           </p>
         </div>
 
-        {actions.length > 0 && (
+        {actions.length > 0 && !cancelLabel && (
           <div className="flex shrink-0 gap-2">
             {actions.map(({ to, label, primary }) => (
               <button
                 key={to}
                 type="button"
                 disabled={busy}
-                onClick={() => act(to, label)}
+                onClick={() => (to === "cancelled" ? setCancelLabel(label) : act(to))}
                 className={
                   primary
                     ? "rounded-md bg-teal-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
@@ -249,11 +284,62 @@ export function BookingCard({
           </div>
         )}
       </div>
+      {cancelLabel && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            act("cancelled", reason.trim());
+          }}
+          className="mt-4 space-y-3 border-t border-stone-100 pt-4"
+        >
+          <label htmlFor={reasonId} className="block text-sm font-semibold text-stone-900">
+            {cancelLabel === "Decline" ? "Why are you declining?" : "Why are you cancelling?"}{" "}
+            <span className="font-normal text-stone-500">({reasonRequired ? "required" : "optional"})</span>
+          </label>
+          <p className="text-xs text-stone-500">
+            {reasonRequired
+              ? `This booking was already confirmed, so the ${role === "client" ? "provider" : "client"} will be told why.`
+              : `If you give a reason, it is shared with the ${role === "client" ? "provider" : "client"}.`}
+          </p>
+          <textarea
+            id={reasonId}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            required={reasonRequired}
+            maxLength={REASON_MAX}
+            rows={2}
+            disabled={busy}
+            className="block w-full rounded-md border border-stone-300 px-3 py-2 text-sm focus:ring-2 focus:ring-teal-600"
+          />
+          <p className="text-xs text-stone-400">{reason.length}/{REASON_MAX} characters</p>
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={busy || (reasonRequired && !reason.trim())}
+              className="rounded-md bg-red-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-red-800 disabled:opacity-60"
+            >
+              {busy ? "Sending..." : cancelLabel === "Decline" ? "Confirm decline" : "Confirm cancellation"}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setCancelLabel(null);
+                setError(null);
+              }}
+              className="rounded-md border border-stone-300 px-3 py-1.5 text-sm font-semibold text-stone-700 hover:bg-stone-50 disabled:opacity-60"
+            >
+              Keep booking
+            </button>
+          </div>
+        </form>
+      )}
       {error && (
         <p role="alert" className="mt-3 text-sm text-red-600">
           {error}
         </p>
       )}
+      <CancellationNote booking={booking} role={role} />
       {booking.status === "completed" && (
         <BookingFeedback booking={booking} role={role} ownerId={ownerId} onUpdated={onUpdated} />
       )}
