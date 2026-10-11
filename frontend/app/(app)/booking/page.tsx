@@ -4,7 +4,7 @@ import React, { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { readAuth, useAuthGuard } from "../../use-auth-guard";
-import { CancellationNote, StatusPill } from "../../bookings-list";
+import { CancellationNote, RescheduleNote, StatusPill } from "../../bookings-list";
 import { API_BASE_URL, NETWORK_ERROR_MESSAGE, apiErrorMessage } from "@/lib/api";
 import {
   Booking,
@@ -263,6 +263,8 @@ function Confirmation({ bookingId }: { bookingId: number }) {
             }
           />
         </dl>
+        {/* Read-only here: it is answered from My Bookings. */}
+        <RescheduleNote booking={booking} role="client" />
         <CancellationNote booking={booking} role="client" />
       </section>
 

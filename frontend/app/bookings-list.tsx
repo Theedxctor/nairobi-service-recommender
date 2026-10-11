@@ -3,7 +3,16 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { API_BASE_URL, NETWORK_ERROR_MESSAGE, apiErrorMessage } from "@/lib/api";
-import { Booking, TIME_SLOT_LABELS, capitalize, whenLabel } from "@/lib/recommendation";
+import {
+  Booking,
+  JOB_DATE_MAX_DAYS_AHEAD,
+  TIME_SLOT_LABELS,
+  capitalize,
+  dayNameOf,
+  formatJobDate,
+  toIsoDate,
+  whenLabel,
+} from "@/lib/recommendation";
 
 export type BookingRole = "client" | "provider";
 
@@ -61,6 +70,64 @@ export function CancellationNote({ booking, role }: { booking: Booking; role: Bo
         </p>
       ) : (
         <p className="mt-1 text-sm text-stone-400">No reason was given.</p>
+      )}
+    </div>
+  );
+}
+
+type RescheduleDecision = "accept" | "decline" | "withdraw";
+
+/** The open request to move a booking (#83). Without onAnswer it is read-only. */
+export function RescheduleNote({
+  booking,
+  role,
+  busy = false,
+  onAnswer,
+}: {
+  booking: Booking;
+  role: BookingRole;
+  busy?: boolean;
+  onAnswer?: (decision: RescheduleDecision) => void;
+}) {
+  const proposal = booking.reschedule;
+  if (!proposal) return null;
+  const mine = proposal.proposed_by === role;
+  const other = role === "client" ? "provider" : "client";
+  const when = `${TIME_SLOT_LABELS[proposal.time_slot] ?? proposal.time_slot} · ${formatJobDate(proposal.job_date)}`;
+  const plain =
+    "rounded-md border border-stone-300 bg-white px-3 py-1.5 text-sm font-semibold text-stone-700 hover:bg-stone-50 disabled:opacity-60";
+  return (
+    <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3" role="status">
+      <p className="text-sm font-semibold text-stone-900">
+        {mine ? "You asked to move this booking to" : `The ${other} asked to move this booking to`} {when}
+      </p>
+      <p className="mt-1 text-sm text-stone-600">
+        {mine
+          ? `Waiting for the ${other} to answer. Until then the booking stays as it is.`
+          : "The booking stays as it is unless you accept. Reliability is predicted again for the new time."}
+      </p>
+      {onAnswer && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {mine ? (
+            <button type="button" disabled={busy} onClick={() => onAnswer("withdraw")} className={plain}>
+              Withdraw request
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => onAnswer("accept")}
+                className="rounded-md bg-teal-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
+              >
+                Accept new time
+              </button>
+              <button type="button" disabled={busy} onClick={() => onAnswer("decline")} className={plain}>
+                Keep current time
+              </button>
+            </>
+          )}
+        </div>
       )}
     </div>
   );
@@ -198,7 +265,12 @@ export function BookingCard({
   // Label of the cancel/decline action being confirmed, or null (#81).
   const [cancelLabel, setCancelLabel] = useState<string | null>(null);
   const [reason, setReason] = useState("");
+  // Reschedule form (#83): null when closed, otherwise the date limits it was opened with.
+  const [moveLimits, setMoveLimits] = useState<{ min: string; max: string } | null>(null);
+  const [newDate, setNewDate] = useState("");
+  const [newSlot, setNewSlot] = useState(booking.time_slot);
   const actions = onUpdated ? ACTIONS[role][booking.status] ?? [] : [];
+  const canReschedule = Boolean(onUpdated) && isActive(booking) && !booking.reschedule;
   // Breaking a confirmed booking needs a reason; the API enforces this too.
   const reasonRequired = booking.status === "confirmed";
   const counterpart =
@@ -206,19 +278,14 @@ export function BookingCard({
       ? booking.provider_name ?? booking.provider_id
       : booking.client_name ?? booking.client_id;
 
-  const act = async (to: Status, cancelReason?: string) => {
+  const send = async (path: "status" | "reschedule", method: "PATCH" | "POST", body: Record<string, unknown>) => {
     setBusy(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/bookings/${booking.booking_id}/status`, {
-        method: "PATCH",
+      const res = await fetch(`${API_BASE_URL}/bookings/${booking.booking_id}/${path}`, {
+        method,
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          status: to,
-          actor: role,
-          actor_id: ownerId,
-          ...(cancelReason && { reason: cancelReason }),
-        }),
+        body: JSON.stringify({ ...body, actor: role, actor_id: ownerId }),
       });
       const data = await res.json().catch(() => null);
       if (!res.ok) {
@@ -227,14 +294,30 @@ export function BookingCard({
       }
       setCancelLabel(null);
       setReason("");
+      setMoveLimits(null);
       onUpdated?.(data as Booking);
     } catch {
-      // The typed reason stays in the form so it can be sent again.
+      // What was typed stays in the form so it can be sent again.
       setError(NETWORK_ERROR_MESSAGE);
     } finally {
       setBusy(false);
     }
   };
+
+  const act = (to: Status, cancelReason?: string) =>
+    send("status", "PATCH", { status: to, ...(cancelReason && { reason: cancelReason }) });
+
+  const openReschedule = () => {
+    const now = new Date();
+    const last = new Date(now.getFullYear(), now.getMonth(), now.getDate() + JOB_DATE_MAX_DAYS_AHEAD);
+    setMoveLimits({ min: toIsoDate(now), max: toIsoDate(last) });
+    setNewDate(booking.job_date && booking.job_date >= toIsoDate(now) ? booking.job_date : toIsoDate(now));
+    setNewSlot(booking.time_slot);
+    setError(null);
+  };
+  const unchanged = newDate === booking.job_date && newSlot === booking.time_slot;
+  const dateId = `move-date-${booking.booking_id}`;
+  const slotId = `move-slot-${booking.booking_id}`;
 
   const reasonId = `cancel-reason-${booking.booking_id}`;
 
@@ -264,8 +347,8 @@ export function BookingCard({
           </p>
         </div>
 
-        {actions.length > 0 && !cancelLabel && (
-          <div className="flex shrink-0 gap-2">
+        {(actions.length > 0 || canReschedule) && !cancelLabel && !moveLimits && (
+          <div className="flex shrink-0 flex-wrap gap-2">
             {actions.map(({ to, label, primary }) => (
               <button
                 key={to}
@@ -281,9 +364,93 @@ export function BookingCard({
                 {label}
               </button>
             ))}
+            {canReschedule && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={openReschedule}
+                className="rounded-md border border-stone-300 px-3 py-1.5 text-sm font-semibold text-stone-700 hover:bg-stone-50 disabled:opacity-60"
+              >
+                Reschedule
+              </button>
+            )}
           </div>
         )}
       </div>
+      {moveLimits && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            send("reschedule", "POST", { job_date: newDate, time_slot: newSlot });
+          }}
+          className="mt-4 space-y-3 border-t border-stone-100 pt-4"
+        >
+          <p className="text-sm font-semibold text-stone-900">Ask to move this booking</p>
+          <p className="text-xs text-stone-500">
+            The {role === "client" ? "provider" : "client"} has to accept before anything changes.
+            {role === "client" ? " The provider" : " You"} must be available on the new day.
+          </p>
+          <div className="flex flex-col gap-3 sm:flex-row">
+            <label htmlFor={dateId} className="block text-sm text-stone-700">
+              New date
+              <input
+                id={dateId}
+                type="date"
+                required
+                value={newDate}
+                min={moveLimits.min}
+                max={moveLimits.max}
+                disabled={busy}
+                onChange={(e) => setNewDate(e.target.value)}
+                className="mt-1 block rounded-md border border-stone-300 bg-white px-3 py-2 text-sm focus:ring-2 focus:ring-teal-600"
+              />
+            </label>
+            <label htmlFor={slotId} className="block text-sm text-stone-700">
+              New time slot
+              <select
+                id={slotId}
+                value={newSlot}
+                disabled={busy}
+                onChange={(e) => setNewSlot(e.target.value)}
+                className="mt-1 block rounded-md border border-stone-300 bg-white px-3 py-2 text-sm focus:ring-2 focus:ring-teal-600"
+              >
+                {Object.entries(TIME_SLOT_LABELS).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <p className="text-xs text-stone-500" aria-live="polite">
+            {unchanged
+              ? "Choose a different date or time slot from the current one."
+              : dayNameOf(newDate)
+                ? `${dayNameOf(newDate)}, ${formatJobDate(newDate)}`
+                : `Choose a date from today up to ${JOB_DATE_MAX_DAYS_AHEAD} days ahead.`}
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="submit"
+              disabled={busy || unchanged || !dayNameOf(newDate) || newDate < moveLimits.min || newDate > moveLimits.max}
+              className="rounded-md bg-teal-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
+            >
+              {busy ? "Sending..." : "Send request"}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => {
+                setMoveLimits(null);
+                setError(null);
+              }}
+              className="rounded-md border border-stone-300 px-3 py-1.5 text-sm font-semibold text-stone-700 hover:bg-stone-50 disabled:opacity-60"
+            >
+              Keep current time
+            </button>
+          </div>
+        </form>
+      )}
       {cancelLabel && (
         <form
           onSubmit={(e) => {
@@ -339,6 +506,12 @@ export function BookingCard({
           {error}
         </p>
       )}
+      <RescheduleNote
+        booking={booking}
+        role={role}
+        busy={busy}
+        onAnswer={onUpdated ? (decision) => send("reschedule", "PATCH", { decision }) : undefined}
+      />
       <CancellationNote booking={booking} role={role} />
       {booking.status === "completed" && (
         <BookingFeedback booking={booking} role={role} ownerId={ownerId} onUpdated={onUpdated} />

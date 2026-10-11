@@ -130,6 +130,9 @@ export interface Booking {
   time_slot: string;
   day_type: string;
   job_date?: string | null; // null for bookings made before dates were collected (#82)
+  // The open request to move this booking (#83), or null. The booking's own
+  // date and slot only change once the other party accepts it.
+  reschedule?: { proposed_by: "client" | "provider"; job_date: string; time_slot: string; created_at: string } | null;
   reliability_score: number | null;
   status: "pending" | "confirmed" | "completed" | "cancelled";
   // Set when cancelled (#81); null for bookings cancelled before this was recorded.
