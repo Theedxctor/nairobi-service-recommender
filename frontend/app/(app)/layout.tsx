@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { LogoutIcon, MenuIcon, XIcon } from "../icons";
 import { NAV_CONFIG } from "../nav-config";
 import { clearAuth, readAuth, ROLE_HOME, type NaiserveAuth } from "../use-auth-guard";
+import VerifyEmailBanner from "../verify-email-banner";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -113,6 +114,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       )}
 
       <main className="flex-1 md:ml-64">
+        <VerifyEmailBanner auth={auth} pathname={pathname} />
         <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">{children}</div>
       </main>
     </div>
