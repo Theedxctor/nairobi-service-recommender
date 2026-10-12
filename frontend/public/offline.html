@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#0f766e" />
+    <title>NaiServe | Offline</title>
+    <style>
+      body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+             background: #fafaf9; color: #1c1917; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+      main { max-width: 22rem; padding: 2rem 1.5rem; text-align: center; }
+      .brand { font-size: 1.25rem; font-weight: 600; }
+      .brand span { color: #0f766e; }
+      h1 { margin: 2rem 0 0.5rem; font-size: 1.5rem; }
+      p { margin: 0; color: #57534e; line-height: 1.6; }
+      button { margin-top: 1.75rem; padding: 0.75rem 1.5rem; border: 0; border-radius: 0.5rem; background: #0f766e;
+               color: #fff; font-size: 1rem; font-weight: 600; cursor: pointer; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="brand">Nai<span>Serve</span></div>
+      <h1>You're offline</h1>
+      <p>NaiServe needs an internet connection to find providers and show your bookings. Check your connection and try again.</p>
+      <button type="button" onclick="location.reload()">Try again</button>
+    </main>
+  </body>
+</html>

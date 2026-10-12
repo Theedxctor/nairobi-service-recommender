@@ -38,7 +38,7 @@ function Field({ label, value }: { label: string; value?: React.ReactNode }) {
   return (
     <div>
       <dt className="text-xs font-medium uppercase tracking-wide text-stone-400">{label}</dt>
-      <dd className="mt-1 text-base text-stone-900">{value ?? "—"}</dd>
+      <dd className="mt-1 text-base text-stone-900 [overflow-wrap:anywhere]">{value ?? "—"}</dd>
     </div>
   );
 }
@@ -183,7 +183,7 @@ function SavedLocation({ profile, onSaved }: { profile: Profile; onSaved: (p: Pr
 
   return (
     <section className="rounded-lg border border-stone-200 bg-white p-8" aria-labelledby="saved-location-heading">
-      <div className="flex items-start justify-between gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <h2 id="saved-location-heading" className="font-heading text-xl font-semibold text-stone-900">
             {isClient ? "Home location" : "Base location"}
