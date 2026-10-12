@@ -169,7 +169,7 @@ export default function RequestPage() {
             <span className="w-8 h-8 rounded-full bg-stone-100 text-stone-500 border border-stone-200 flex items-center justify-center font-semibold text-sm">
               2
             </span>
-            <span className="text-sm font-medium text-stone-400">
+            <span className="sr-only text-sm font-medium text-stone-400 sm:not-sr-only">
               View Recommendations
             </span>
           </div>
@@ -179,7 +179,7 @@ export default function RequestPage() {
             <span className="w-8 h-8 rounded-full bg-stone-100 text-stone-500 border border-stone-200 flex items-center justify-center font-semibold text-sm">
               3
             </span>
-            <span className="text-sm font-medium text-stone-400">
+            <span className="sr-only text-sm font-medium text-stone-400 sm:not-sr-only">
               Confirm Booking
             </span>
           </div>

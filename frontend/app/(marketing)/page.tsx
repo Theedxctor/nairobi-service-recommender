@@ -42,7 +42,7 @@ export default function Home() {
           <p className="font-heading text-sm font-semibold uppercase tracking-[0.2em] text-teal-700">
             Nairobi&apos;s context-aware service network
           </p>
-          <h1 className="mt-6 font-heading text-5xl font-semibold leading-[1.05] tracking-tight text-stone-900 md:text-6xl lg:text-7xl">
+          <h1 className="mt-6 font-heading text-4xl font-semibold leading-[1.1] tracking-tight text-stone-900 sm:text-5xl sm:leading-[1.05] md:text-6xl lg:text-7xl">
             Find a reliable service provider, not just the nearest one.
           </h1>
           <p className="mt-6 text-lg leading-relaxed text-stone-600 md:text-xl">
