@@ -11,6 +11,10 @@ Endpoints:
   PUT  /profile/location   -> save a client's home / provider's base location
   POST /auth/register      -> create a client or provider account
   POST /auth/login         -> verify credentials, return user_id/role/client_id or provider_id
+  GET  /auth/config        -> public sign-in settings (Google client ID, if configured)
+  POST /auth/google        -> sign in with a Google ID token, or report that registration is needed
+  POST /auth/verify-email  -> confirm an email address with the emailed single-use token
+  POST /auth/resend-verification -> email a new verification link
   GET  /profile            -> role-appropriate profile fields for a user_id
   GET  /notifications      -> a user's notifications, newest first
   PATCH /notifications/{id}/read -> marks one notification as read
@@ -24,8 +28,15 @@ Endpoints:
 Run with:  uvicorn api:app --reload --port 8000
 Docs at:   http://localhost:8000/docs
 """
+import hashlib
+import hmac
+import json
+import logging
 import os
 import re
+import secrets
+import urllib.error
+import urllib.request
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
@@ -64,6 +75,22 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+logger = logging.getLogger("naiserve")
+
+# Sign-in and email verification (#95). Every value is optional: with none set
+# the API still runs, Google sign-in is switched off, and verification links
+# are written to the server log instead of being emailed.
+GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "").strip() or None
+BREVO_API_KEY = os.environ.get("BREVO_API_KEY", "").strip() or None
+EMAIL_FROM = os.environ.get("EMAIL_FROM", "").strip() or None  # a sender verified in Brevo
+EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "NaiServe").strip()
+FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000").rstrip("/")
+# Lets automated tests obtain a verification link without a mailbox. The
+# test-only endpoint does not exist unless this is set.
+E2E_VERIFY_SECRET = os.environ.get("E2E_VERIFY_SECRET", "").strip() or None
+EMAIL_TOKEN_HOURS = 24
+EMAIL_RESEND_SECONDS = 60
 
 BASE_DIR = Path(__file__).resolve().parent
 MODEL_PATH = BASE_DIR / "models" / "xgboost_arrival_reliability_pipeline.pkl"
@@ -216,8 +243,11 @@ class RankedProvider(BaseModel):
 
 
 class RegisterRequest(BaseModel):
-    email: str
-    password: str
+    email: str = ""  # ignored with google_credential: Google's address is used
+    password: Optional[str] = None  # required unless google_credential is sent
+    # A Google ID token (#95). The account is then created without a password
+    # and its email counts as verified, because Google has confirmed it.
+    google_credential: Optional[str] = None
     role: str = Field(..., examples=["client", "provider"])
     name: str
     phone: str
@@ -233,6 +263,9 @@ class RegisterRequest(BaseModel):
 class RegisterResponse(BaseModel):
     user_id: str
     role: str
+    email_verified: bool = False
+    # False when the link could not be emailed (it can be sent again later).
+    verification_email_sent: bool = False
 
 
 class LoginRequest(BaseModel):
@@ -246,6 +279,50 @@ class LoginResponse(BaseModel):
     name: Optional[str] = None
     client_id: Optional[str] = None
     provider_id: Optional[str] = None
+    email_verified: bool = False
+
+
+class GoogleLoginRequest(BaseModel):
+    credential: str  # the ID token Google's sign-in button hands the browser
+
+
+class GoogleLoginResponse(BaseModel):
+    """Either a signed-in account, or (registered=False) the Google identity
+    of someone who still has to choose a role and complete registration."""
+    registered: bool
+    email: str
+    name: Optional[str] = None
+    user_id: Optional[str] = None
+    role: Optional[str] = None
+    client_id: Optional[str] = None
+    provider_id: Optional[str] = None
+    email_verified: Optional[bool] = None
+
+
+class AuthConfigResponse(BaseModel):
+    google_client_id: Optional[str] = None  # None = Google sign-in is switched off
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str
+
+
+class VerifyEmailResponse(BaseModel):
+    user_id: str
+    email_verified: bool
+
+
+class ResendVerificationRequest(BaseModel):
+    user_id: str
+
+
+class ResendVerificationResponse(BaseModel):
+    sent: bool
+
+
+class TestVerificationTokenRequest(BaseModel):
+    user_id: str
+    secret: str
 
 
 class ProfileResponse(BaseModel):
@@ -253,6 +330,7 @@ class ProfileResponse(BaseModel):
     role: str
     name: Optional[str] = None
     email: str
+    email_verified: bool = False
     phone: Optional[str] = None
     area_name: Optional[str] = None  # client only
     base_area_name: Optional[str] = None  # provider only
@@ -395,17 +473,18 @@ def _email_exists(cursor, email):
     return cursor.fetchone() is not None
 
 
-def _fetch_user_by_email(cursor, email):
+def _fetch_user_by(cursor, column, value):
+    # column is chosen by the caller ("email"/"google_sub"/"user_id"), never user input.
     cursor.execute(
-        """
+        f"""
         SELECT u.user_id, u.password_hash, u.role, u.client_id, u.provider_id,
-               COALESCE(c.name, sp.name) AS name
+               COALESCE(c.name, sp.name) AS name, u.email, u.email_verified_at IS NOT NULL, u.google_sub
         FROM users u
         LEFT JOIN clients c ON u.client_id = c.client_id
         LEFT JOIN service_providers sp ON u.provider_id = sp.provider_id
-        WHERE u.email = %s
+        WHERE u.{column} = %s
         """,
-        (email,),
+        (value,),
     )
     row = cursor.fetchone()
     if row is None:
@@ -417,7 +496,14 @@ def _fetch_user_by_email(cursor, email):
         "client_id": row[3],
         "provider_id": row[4],
         "name": row[5],
+        "email": row[6],
+        "email_verified": row[7],
+        "google_sub": row[8],
     }
+
+
+def _fetch_user_by_email(cursor, email):
+    return _fetch_user_by(cursor, "email", email)
 
 
 def _insert_client(cursor, client_id, name, area_id, phone, email, lat=None, lng=None):
@@ -444,14 +530,173 @@ def _insert_provider(cursor, provider_id, name, base_area_id, service_type, hour
     )
 
 
-def _insert_user(cursor, user_id, email, password_hash, role, client_id, provider_id):
+def _insert_user(cursor, user_id, email, password_hash, role, client_id, provider_id, google_sub=None):
+    # An account created through Google starts verified: Google confirmed the address.
     cursor.execute(
         """
-        INSERT INTO users (user_id, email, password_hash, role, client_id, provider_id)
-        VALUES (%s, %s, %s, %s, %s, %s)
+        INSERT INTO users (user_id, email, password_hash, role, client_id, provider_id,
+                           google_sub, email_verified_at)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, CASE WHEN %s THEN NOW() END)
         """,
-        (user_id, email, password_hash, role, client_id, provider_id),
+        (user_id, email, password_hash, role, client_id, provider_id, google_sub, google_sub is not None),
     )
+
+
+# ---------------------------------------------------------------------------
+# Google sign-in and email verification (#95)
+# ---------------------------------------------------------------------------
+def _verify_google_credential(credential):
+    """Check a Google ID token and return {"sub", "email", "name"}. The library
+    verifies Google's signature, that the token was issued for this app
+    (audience = our client ID) and that it has not expired, so the browser
+    cannot simply claim to be someone."""
+    if not GOOGLE_CLIENT_ID:
+        raise HTTPException(503, "Google sign-in is not set up on this server.")
+    from google.auth.exceptions import TransportError
+    from google.auth.transport import requests as google_requests
+    from google.oauth2 import id_token
+    try:
+        claims = id_token.verify_oauth2_token(credential, google_requests.Request(), GOOGLE_CLIENT_ID)
+    except TransportError:
+        raise HTTPException(503, "Could not reach Google to check the sign-in. Please try again.")
+    except ValueError:
+        raise HTTPException(401, "Google sign-in could not be verified. Please try again.")
+    if not claims.get("email") or not claims.get("email_verified"):
+        raise HTTPException(403, "Your Google account has no verified email address.")
+    return {"sub": str(claims["sub"]), "email": claims["email"].strip().lower(),
+            "name": (claims.get("name") or "").strip()}
+
+
+def _hash_token(token):
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def _issue_email_token(cursor, user_id):
+    """Replace the user's verification link with a new one and return the raw
+    token. Only its hash is stored."""
+    token = secrets.token_urlsafe(32)
+    cursor.execute("DELETE FROM email_verification_tokens WHERE user_id = %s", (user_id,))
+    cursor.execute(
+        "INSERT INTO email_verification_tokens (token_hash, user_id, expires_at) "
+        "VALUES (%s, %s, NOW() + make_interval(hours => %s))",
+        (_hash_token(token), user_id, EMAIL_TOKEN_HOURS),
+    )
+    return token
+
+
+def _consume_email_token(cursor, token):
+    """Use up a token: (user_id, still_valid), or None if it does not exist."""
+    cursor.execute(
+        "DELETE FROM email_verification_tokens WHERE token_hash = %s RETURNING user_id, expires_at > NOW()",
+        (_hash_token(token),),
+    )
+    return cursor.fetchone()
+
+
+def _seconds_since_last_email_token(cursor, user_id):
+    cursor.execute(
+        "SELECT EXTRACT(EPOCH FROM NOW() - MAX(created_at)) FROM email_verification_tokens WHERE user_id = %s",
+        (user_id,),
+    )
+    row = cursor.fetchone()
+    return float(row[0]) if row and row[0] is not None else None
+
+
+def _mark_email_verified(cursor, user_id):
+    cursor.execute(
+        "UPDATE users SET email_verified_at = COALESCE(email_verified_at, NOW()) WHERE user_id = %s",
+        (user_id,),
+    )
+    cursor.execute("DELETE FROM email_verification_tokens WHERE user_id = %s", (user_id,))
+
+
+def _link_google_account(cursor, user, google_sub):
+    """First Google sign-in for an existing password account with the same
+    address. Google has confirmed the address, so the account becomes verified.
+    If it was NOT verified before, its password is removed: nobody had proved
+    they owned the address, so whoever set that password may not be the owner."""
+    cursor.execute(
+        """
+        UPDATE users SET google_sub = %s,
+                         password_hash = CASE WHEN email_verified_at IS NULL THEN NULL ELSE password_hash END,
+                         email_verified_at = COALESCE(email_verified_at, NOW())
+        WHERE user_id = %s
+        """,
+        (google_sub, user["user_id"]),
+    )
+    cursor.execute("DELETE FROM email_verification_tokens WHERE user_id = %s", (user["user_id"],))
+
+
+def _account_unverified(cursor, column, value):
+    """True if this client/provider has a login account whose email is not
+    verified. Dataset clients and providers with no account are not affected."""
+    cursor.execute(
+        f"SELECT 1 FROM users WHERE {column} = %s AND email_verified_at IS NULL AND role <> 'admin'",
+        (value,),
+    )
+    return cursor.fetchone() is not None
+
+
+def _unverified_provider_ids():
+    """Providers who registered but have not verified their email: they are
+    not recommended until they do."""
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT provider_id FROM users WHERE role = 'provider' AND email_verified_at IS NULL")
+        return {row[0] for row in cursor.fetchall()}
+    finally:
+        conn.close()
+
+
+def _send_email(to_email, to_name, subject, text, html):
+    """Send through Brevo's HTTP API. Returns whether it was accepted; never
+    raises, so a mail outage cannot fail a registration."""
+    if not (BREVO_API_KEY and EMAIL_FROM):
+        return False
+    payload = json.dumps({
+        "sender": {"name": EMAIL_FROM_NAME, "email": EMAIL_FROM},
+        "to": [{"email": to_email, "name": to_name or to_email}],
+        "subject": subject,
+        "textContent": text,
+        "htmlContent": html,
+    }).encode("utf-8")
+    request = urllib.request.Request(
+        "https://api.brevo.com/v3/smtp/email", data=payload, method="POST",
+        headers={"api-key": BREVO_API_KEY, "content-type": "application/json", "accept": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=10) as response:
+            return 200 <= response.status < 300
+    except urllib.error.HTTPError as e:
+        logger.error("Brevo rejected the email to %s: %s %s", to_email, e.code, e.read()[:300])
+    except Exception as e:  # network trouble, timeout
+        logger.error("Could not send the email to %s: %s", to_email, e)
+    return False
+
+
+def _send_verification_email(email, name, token):
+    link = f"{FRONTEND_URL}/verify-email?token={token}"
+    if not (BREVO_API_KEY and EMAIL_FROM):
+        # Local development: no mail service, so the link goes to the log.
+        logger.warning("Email sending is not configured. Verification link for %s: %s", email, link)
+        return False
+    greeting = f"Hi {name}," if name else "Hi,"
+    text = (f"{greeting}\n\nConfirm your email address to start using NaiServe:\n{link}\n\n"
+            f"This link works once and expires in {EMAIL_TOKEN_HOURS} hours. "
+            f"If you did not create a NaiServe account, you can ignore this email.")
+    html = (
+        f'<div style="font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#1c1917;max-width:480px">'
+        f'<p style="font-size:20px;font-weight:600">Nai<span style="color:#0f766e">Serve</span></p>'
+        f'<p>{greeting}</p><p>Confirm your email address to start using NaiServe.</p>'
+        f'<p><a href="{link}" style="display:inline-block;background:#0f766e;color:#ffffff;'
+        f'padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600">Verify my email</a></p>'
+        f'<p style="font-size:13px;color:#57534e">This link works once and expires in {EMAIL_TOKEN_HOURS} hours. '
+        f'If the button does not work, copy this address into your browser:<br>{link}</p>'
+        f'<p style="font-size:13px;color:#57534e">If you did not create a NaiServe account, you can ignore this email.</p>'
+        f'</div>'
+    )
+    return _send_email(email, name, "Verify your email for NaiServe", text, html)
 
 
 def _add_provider_to_cache(provider_id, req, base_area_id=None, lat=None, lng=None):
@@ -493,7 +738,8 @@ def _fetch_profile(cursor, user_id):
                sp.experience_years, sp.is_verified,
                ST_Y(COALESCE(c.location, sp.location)), ST_X(COALESCE(c.location, sp.location)),
                (SELECT COUNT(*) FROM booking_reviews r
-                JOIN bookings b ON b.booking_id = r.booking_id WHERE b.provider_id = sp.provider_id)
+                JOIN bookings b ON b.booking_id = r.booking_id WHERE b.provider_id = sp.provider_id),
+               u.email_verified_at IS NOT NULL
         FROM users u
         LEFT JOIN clients c ON u.client_id = c.client_id
         LEFT JOIN nairobi_areas na_c ON c.area_id = na_c.area_id
@@ -526,6 +772,7 @@ def _fetch_profile(cursor, user_id):
         "lat": row[16],
         "lng": row[17],
         "review_count": row[18] if row[1] == "provider" else None,
+        "email_verified": row[19],
     }
 
 
@@ -927,6 +1174,14 @@ def _rank_available(req):
     if candidates.empty:
         raise HTTPException(404, f"No providers found for service_type: {req.service_type}")
 
+    # A provider who registered but has not verified their email is not
+    # offered yet (#95). Dataset providers have no account and are unaffected.
+    unverified = _unverified_provider_ids()
+    if unverified:
+        candidates = candidates.loc[~candidates["provider_id"].astype(str).isin(unverified)]
+        if candidates.empty:
+            raise HTTPException(404, f"No providers found for service_type: {req.service_type}")
+
     # Filter to available providers before scoring. Narrow the availability
     # table to these candidates once, instead of scanning every row per provider.
     availability_df = ref.get("availability")
@@ -1026,10 +1281,15 @@ def register(req: RegisterRequest):
     role = req.role.strip().lower()
     if role not in ("client", "provider"):
         raise HTTPException(400, "role must be 'client' or 'provider'.")
-    if not req.email.strip() or not EMAIL_PATTERN.match(req.email.strip()):
-        raise HTTPException(400, "A valid email is required.")
-    if not req.password or len(req.password) < 8:
-        raise HTTPException(400, "Password must be at least 8 characters.")
+    google = None
+    if req.google_credential:
+        # The address comes from Google's signed token, not from the form.
+        google = _verify_google_credential(req.google_credential)
+    else:
+        if not req.email.strip() or not EMAIL_PATTERN.match(req.email.strip()):
+            raise HTTPException(400, "A valid email is required.")
+        if not req.password or len(req.password) < 8:
+            raise HTTPException(400, "Password must be at least 8 characters.")
     if not req.name.strip():
         raise HTTPException(400, "Name is required.")
     if not req.phone.strip():
@@ -1051,7 +1311,7 @@ def register(req: RegisterRequest):
                  "are required for provider registration."
         )
 
-    email = req.email.strip().lower()
+    email = google["email"] if google else req.email.strip().lower()
     conn = _get_db_connection()
     try:
         cursor = conn.cursor()
@@ -1075,7 +1335,12 @@ def register(req: RegisterRequest):
             )
 
         user_id = _next_id(cursor, "users", "user_id", "U")
-        _insert_user(cursor, user_id, email, _hash_password(req.password), role, client_id, provider_id)
+        if google:
+            _insert_user(cursor, user_id, email, None, role, client_id, provider_id, google_sub=google["sub"])
+            token = None
+        else:
+            _insert_user(cursor, user_id, email, _hash_password(req.password), role, client_id, provider_id)
+            token = _issue_email_token(cursor, user_id)
 
         # Real, event-triggered notification for this signup -- not fabricated content.
         # Booking events (request, confirm, decline, cancel, complete) notify
@@ -1090,7 +1355,10 @@ def register(req: RegisterRequest):
         conn.commit()
         if provider_id:
             _add_provider_to_cache(provider_id, req, derived_area_id or req.base_area_id, req.lat, req.lng)
-        return RegisterResponse(user_id=user_id, role=role)
+        # Sent after the commit: the account exists whether or not the mail goes out.
+        sent = _send_verification_email(email, req.name.strip(), token) if token else False
+        return RegisterResponse(user_id=user_id, role=role, email_verified=google is not None,
+                                verification_email_sent=sent)
     except HTTPException:
         conn.rollback()
         raise
@@ -1116,7 +1384,8 @@ def login(req: LoginRequest):
 
     # Deliberately generic: same error for "no such email" and "wrong password"
     # so a client can't use this endpoint to enumerate registered emails.
-    if user is None or not _verify_password(req.password, user["password_hash"]):
+    # (An account created with Google has no password, so it fails here too.)
+    if user is None or not user["password_hash"] or not _verify_password(req.password, user["password_hash"]):
         raise HTTPException(401, "Invalid email or password.")
 
     return LoginResponse(
@@ -1125,7 +1394,116 @@ def login(req: LoginRequest):
         name=user["name"],
         client_id=user["client_id"],
         provider_id=user["provider_id"],
+        email_verified=bool(user.get("email_verified")),
     )
+
+
+@app.get("/auth/config", response_model=AuthConfigResponse)
+def auth_config():
+    """What the sign-in pages need to know. The Google client ID is public by
+    design (it is embedded in every page that shows the button)."""
+    return AuthConfigResponse(google_client_id=GOOGLE_CLIENT_ID)
+
+
+@app.post("/auth/google", response_model=GoogleLoginResponse, response_model_exclude_none=True)
+def google_login(req: GoogleLoginRequest):
+    google = _verify_google_credential(req.credential)
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        user = _fetch_user_by(cursor, "google_sub", google["sub"])
+        if user is None:
+            user = _fetch_user_by(cursor, "email", google["email"])
+            if user is not None:
+                _link_google_account(cursor, user, google["sub"])
+                conn.commit()
+        if user is None:
+            # New to NaiServe: the register page collects role and profile next.
+            return GoogleLoginResponse(registered=False, email=google["email"], name=google["name"] or None)
+        return GoogleLoginResponse(
+            registered=True, email=user["email"], name=user["name"], user_id=user["user_id"],
+            role=user["role"], client_id=user["client_id"], provider_id=user["provider_id"],
+            email_verified=True,
+        )
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        raise HTTPException(409, "This Google account is already linked to another NaiServe account.")
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@app.post("/auth/verify-email", response_model=VerifyEmailResponse)
+def verify_email(req: VerifyEmailRequest):
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        found = _consume_email_token(cursor, req.token.strip())
+        if found is None:
+            raise HTTPException(400, "This verification link is not valid or has already been used.")
+        user_id, still_valid = found
+        if not still_valid:
+            conn.commit()  # the expired link is gone either way
+            raise HTTPException(410, "This verification link has expired. Log in and ask for a new one.")
+        _mark_email_verified(cursor, user_id)
+        _insert_notification(cursor, user_id, "Your email address is verified. You can now use all of NaiServe.")
+        conn.commit()
+        return VerifyEmailResponse(user_id=user_id, email_verified=True)
+    except HTTPException:
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@app.post("/auth/resend-verification", response_model=ResendVerificationResponse)
+def resend_verification(req: ResendVerificationRequest):
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        user = _fetch_user_by(cursor, "user_id", req.user_id)
+        if user is None:
+            raise HTTPException(404, f"Unknown user_id: {req.user_id}")
+        if user["email_verified"]:
+            raise HTTPException(409, "This email address is already verified.")
+        waited = _seconds_since_last_email_token(cursor, user["user_id"])
+        if waited is not None and waited < EMAIL_RESEND_SECONDS:
+            raise HTTPException(429, f"Please wait {int(EMAIL_RESEND_SECONDS - waited) + 1} seconds before asking again.")
+        token = _issue_email_token(cursor, user["user_id"])
+        conn.commit()
+    except HTTPException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+    sent = _send_verification_email(user["email"], user["name"], token)
+    if not sent and BREVO_API_KEY and EMAIL_FROM:
+        raise HTTPException(502, "The verification email could not be sent. Please try again shortly.")
+    return ResendVerificationResponse(sent=sent)
+
+
+@app.post("/auth/test/verification-token", include_in_schema=False)
+def test_verification_token(req: TestVerificationTokenRequest):
+    """For automated tests only: issue a verification token without a mailbox,
+    so a test can then verify through the real /auth/verify-email. Exists only
+    when E2E_VERIFY_SECRET is set, and needs that secret."""
+    if not E2E_VERIFY_SECRET or not hmac.compare_digest(req.secret.encode(), E2E_VERIFY_SECRET.encode()):
+        raise HTTPException(404, "Not Found")
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        user = _fetch_user_by(cursor, "user_id", req.user_id)
+        if user is None:
+            raise HTTPException(404, f"Unknown user_id: {req.user_id}")
+        token = _issue_email_token(cursor, user["user_id"])
+        conn.commit()
+        return {"token": token}
+    finally:
+        conn.close()
 
 
 @app.get("/profile", response_model=ProfileResponse, response_model_exclude_none=True)
@@ -1197,6 +1575,10 @@ def create_booking(req: BookingCreateRequest):
         cursor = conn.cursor()
         if not _client_exists(cursor, req.client_id):
             raise HTTPException(404, f"Unknown client_id: {req.client_id}")
+        if _account_unverified(cursor, "client_id", req.client_id):
+            raise HTTPException(403, "Verify your email address before making a booking.")
+        if _account_unverified(cursor, "provider_id", req.provider_id):
+            raise HTTPException(409, "This provider is not taking bookings yet.")
 
         booking_id = _insert_booking(
             cursor, req.client_id, req.provider_id, service_type, client_area,
@@ -1273,6 +1655,10 @@ def update_booking_status(booking_id: int, req: BookingStatusUpdate):
                 f"A {actor} cannot change a '{booking['status']}' booking to '{new_status}'"
                 + (f" (allowed: {sorted(allowed)})." if allowed else "."),
             )
+
+        if actor == "provider" and new_status == "confirmed" and _account_unverified(
+                cursor, "provider_id", req.actor_id):
+            raise HTTPException(403, "Verify your email address before accepting jobs.")
 
         cancelling = new_status == "cancelled"
         if req.reason and not cancelling:
