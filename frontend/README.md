@@ -50,7 +50,7 @@ like an app, with no app store involved.
   `display: standalone`, start URL `/dashboard`).
 - Icons are in `public/icons/` (`maskable-*` are the full-bleed versions
   Android crops to its own shape), plus `app/apple-icon.png` for iOS and
-  `app/icon.svg` as the browser tab icon.
+  `app/icon.png` as the browser tab icon.
 - `app/install-prompt.tsx` shows an Install button where the browser supports
   one (Android, desktop Chrome/Edge) and the Share > Add to Home Screen steps
   on iPhone Safari, which has no install prompt.
