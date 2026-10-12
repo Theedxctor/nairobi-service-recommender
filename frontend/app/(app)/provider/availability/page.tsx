@@ -126,23 +126,25 @@ export default function ProviderAvailabilityPage() {
                 <span className="font-medium">{day}</span>
                 <span className="sr-only">Available</span>
               </label>
-              <input
-                type="time"
-                aria-label={`${day} start time`}
-                value={rows[day].start}
-                disabled={!rows[day].enabled}
-                onChange={(e) => update(day, { start: e.target.value })}
-                className="rounded-md border border-stone-300 px-3 py-1.5 text-stone-900 disabled:bg-stone-100 disabled:text-stone-400"
-              />
-              <span className="text-stone-400">to</span>
-              <input
-                type="time"
-                aria-label={`${day} end time`}
-                value={rows[day].end}
-                disabled={!rows[day].enabled}
-                onChange={(e) => update(day, { end: e.target.value })}
-                className="rounded-md border border-stone-300 px-3 py-1.5 text-stone-900 disabled:bg-stone-100 disabled:text-stone-400"
-              />
+              <div className="flex items-center gap-2">
+                <input
+                  type="time"
+                  aria-label={`${day} start time`}
+                  value={rows[day].start}
+                  disabled={!rows[day].enabled}
+                  onChange={(e) => update(day, { start: e.target.value })}
+                  className="min-w-0 rounded-md border border-stone-300 px-2 py-1.5 text-stone-900 disabled:bg-stone-100 disabled:text-stone-400 sm:px-3"
+                />
+                <span className="text-stone-400">to</span>
+                <input
+                  type="time"
+                  aria-label={`${day} end time`}
+                  value={rows[day].end}
+                  disabled={!rows[day].enabled}
+                  onChange={(e) => update(day, { end: e.target.value })}
+                  className="min-w-0 rounded-md border border-stone-300 px-2 py-1.5 text-stone-900 disabled:bg-stone-100 disabled:text-stone-400 sm:px-3"
+                />
+              </div>
             </li>
           ))}
         </ul>
