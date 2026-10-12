@@ -180,7 +180,7 @@ export default function ResultsPage() {
             <span className="w-8 h-8 rounded-full bg-teal-700 text-white flex items-center justify-center font-semibold text-sm">
               ✓
             </span>
-            <span className="text-sm font-medium text-stone-600">
+            <span className="sr-only text-sm font-medium text-stone-600 sm:not-sr-only">
               Request Details
             </span>
           </div>
@@ -200,7 +200,7 @@ export default function ResultsPage() {
             <span className="w-8 h-8 rounded-full bg-stone-100 text-stone-500 border border-stone-200 flex items-center justify-center font-semibold text-sm">
               3
             </span>
-            <span className="text-sm font-medium text-stone-400">
+            <span className="sr-only text-sm font-medium text-stone-400 sm:not-sr-only">
               Confirm Booking
             </span>
           </div>
@@ -232,7 +232,7 @@ export default function ResultsPage() {
             id="sortSelect"
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value as SortKey)}
-            className="px-3 py-1.5 rounded-lg border border-stone-300 bg-white text-stone-800 text-xs font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
+            className="min-w-0 flex-1 sm:flex-none px-3 py-1.5 rounded-lg border border-stone-300 bg-white text-stone-800 text-xs font-medium shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500"
           >
             <option value="reliability">Reliability Score (High to Low)</option>
             <option value="distance">Distance (Nearest First)</option>
@@ -388,7 +388,7 @@ function ProviderCard({ provider, rankLabel }: { provider: RankedProvider; rankL
       <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
         {/* Provider Info */}
         <div className="space-y-1">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
             {rankLabel && (
               <span className="text-xs font-bold text-stone-400 w-5">{rankLabel}</span>
             )}

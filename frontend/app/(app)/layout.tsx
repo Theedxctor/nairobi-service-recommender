@@ -36,7 +36,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <button
           type="button"
           onClick={() => setDrawerOpen(false)}
-          className="text-stone-400 hover:text-stone-600 md:hidden"
+          className="-m-2 p-2 text-stone-400 hover:text-stone-600 md:hidden"
           aria-label="Close menu"
         >
           <XIcon className="h-5 w-5" />
@@ -99,7 +99,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <Link href={homeHref} className="font-heading text-lg font-semibold text-stone-900">
           Nai<span className="text-teal-700">Serve</span>
         </Link>
-        <button type="button" onClick={() => setDrawerOpen(true)} className="text-stone-600" aria-label="Open menu">
+        <button type="button" onClick={() => setDrawerOpen(true)} className="-m-2 p-2 text-stone-600" aria-label="Open menu">
           <MenuIcon className="h-6 w-6" />
         </button>
       </div>
@@ -113,7 +113,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       )}
 
       <main className="flex-1 md:ml-64">
-        <div className="mx-auto max-w-5xl px-6 py-10">{children}</div>
+        <div className="mx-auto max-w-5xl px-4 py-6 sm:px-6 sm:py-10">{children}</div>
       </main>
     </div>
   );

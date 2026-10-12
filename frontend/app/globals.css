@@ -14,3 +14,13 @@ html {
   --font-heading: "Segoe UI", ui-sans-serif, system-ui, -apple-system, sans-serif;
 }
 
+/* iOS Safari zooms the whole page in when a focused field's text is smaller
+   than 16px, and does not zoom back out. Most fields here use text-sm, so on
+   phones they are raised to 16px (#93). */
+@media (max-width: 767px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}

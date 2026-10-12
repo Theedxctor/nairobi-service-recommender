@@ -40,3 +40,23 @@ Runs on [http://localhost:3000](http://localhost:3000) (falls back to 3001 if
 
 Copy `.env.example` to `.env.local` to override. The value is read in
 `lib/api.ts` and inlined at build time.
+
+## Installable web app (#93)
+
+NaiServe can be added to a phone's home screen and then opens full-screen,
+like an app, with no app store involved.
+
+- `app/manifest.ts` is served at `/manifest.webmanifest` (name, colours,
+  `display: standalone`, start URL `/dashboard`).
+- Icons are in `public/icons/` (`maskable-*` are the full-bleed versions
+  Android crops to its own shape), plus `app/apple-icon.png` for iOS and
+  `app/icon.svg` as the browser tab icon.
+- `app/install-prompt.tsx` shows an Install button where the browser supports
+  one (Android, desktop Chrome/Edge) and the Share > Add to Home Screen steps
+  on iPhone Safari, which has no install prompt.
+- `public/sw.js` is a small service worker that shows `public/offline.html`
+  when a page cannot load. It caches nothing else, and is only registered in
+  a production build (`npm run build && npm run start`), not in `npm run dev`.
+
+Installing needs HTTPS (or `localhost`). The app still needs a connection to
+work: only the "you're offline" page is available without one.
