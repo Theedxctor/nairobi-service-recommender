@@ -230,3 +230,25 @@ CREATE TABLE booking_reviews (
     comment VARCHAR(1000),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+-- 12. booking_reschedules: proposals to move a booking to another date or time
+-- slot (#83). The booking only changes when a proposal is accepted; the
+-- previous_* columns keep what it was moved from. previous_job_date is NULL
+-- for bookings that had no date.
+CREATE TABLE booking_reschedules (
+    reschedule_id SERIAL PRIMARY KEY,
+    booking_id INTEGER NOT NULL REFERENCES bookings(booking_id),
+    proposed_by VARCHAR(10) NOT NULL CHECK (proposed_by IN ('client', 'provider')),
+    job_date DATE NOT NULL,
+    time_slot VARCHAR(20) NOT NULL,
+    previous_job_date DATE,
+    previous_time_slot VARCHAR(20) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'accepted', 'declined', 'withdrawn')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    resolved_at TIMESTAMPTZ
+);
+
+-- At most one open proposal per booking.
+CREATE UNIQUE INDEX idx_booking_reschedules_one_pending
+    ON booking_reschedules (booking_id) WHERE status = 'pending';
