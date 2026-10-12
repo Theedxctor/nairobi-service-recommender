@@ -104,6 +104,18 @@ def _today_in_nairobi():
     return datetime.now(NAIROBI_TZ).date()
 
 
+def _check_job_date(job_date):
+    today = _today_in_nairobi()
+    if job_date < today:
+        raise ValueError("job_date cannot be in the past.")
+    if job_date > today + timedelta(days=JOB_DATE_MAX_DAYS_AHEAD):
+        raise ValueError(f"job_date cannot be more than {JOB_DATE_MAX_DAYS_AHEAD} days ahead.")
+
+
+def _day_type_of(job_date):
+    return "weekend" if job_date.weekday() >= 5 else "weekday"
+
+
 class ContextFields(BaseModel):
     time_slot: str = Field(..., examples=["evening_rush"])
     # Send job_date, day_type, or both if they agree. With a date, day_type is
@@ -128,12 +140,8 @@ class ContextFields(BaseModel):
             if self.day_type is None:
                 raise ValueError("Send job_date or day_type.")
             return self
-        today = _today_in_nairobi()
-        if self.job_date < today:
-            raise ValueError("job_date cannot be in the past.")
-        if self.job_date > today + timedelta(days=JOB_DATE_MAX_DAYS_AHEAD):
-            raise ValueError(f"job_date cannot be more than {JOB_DATE_MAX_DAYS_AHEAD} days ahead.")
-        derived = "weekend" if self.job_date.weekday() >= 5 else "weekday"
+        _check_job_date(self.job_date)
+        derived = _day_type_of(self.job_date)
         if self.day_type is not None and self.day_type != derived:
             raise ValueError(f"{self.job_date.isoformat()} is a {self.job_date.strftime('%A')}, "
                              f"so day_type must be '{derived}'.")
@@ -287,6 +295,39 @@ class BookingStatusUpdate(BaseModel):
         return (value.strip() or None) if value is not None else None
 
 
+class RescheduleProposal(BaseModel):
+    """A new date and time slot for a pending or confirmed booking (#83)."""
+    actor: str = Field(..., examples=["client"])  # "client" or "provider"
+    actor_id: str = Field(..., examples=["C0501"])  # must own the booking
+    job_date: date = Field(..., examples=["2026-10-20"])
+    time_slot: str = Field(..., examples=["midday"])
+
+    @field_validator("time_slot")
+    @classmethod
+    def _check_time_slot(cls, v):
+        return _canonical(v, TIME_SLOTS, "time_slot")
+
+    @field_validator("job_date")
+    @classmethod
+    def _check_date(cls, v):
+        _check_job_date(v)
+        return v
+
+
+class RescheduleDecision(BaseModel):
+    actor: str = Field(..., examples=["provider"])
+    actor_id: str = Field(..., examples=["P0023"])
+    # The other party accepts or declines; the proposer may withdraw.
+    decision: str = Field(..., examples=["accept"])
+
+
+class BookingReschedule(BaseModel):
+    proposed_by: str  # "client" / "provider"
+    job_date: date
+    time_slot: str
+    created_at: datetime
+
+
 class ReviewCreateRequest(BaseModel):
     client_id: str
     rating: int = Field(..., strict=True, ge=1, le=5)
@@ -324,6 +365,7 @@ class BookingResponse(BaseModel):
     cancellation_reason: Optional[str] = None
     created_at: datetime
     review: Optional[BookingReview] = None
+    reschedule: Optional[BookingReschedule] = None  # the open proposal, if any (#83)
 
 
 class LocateResponse(BaseModel):
@@ -558,11 +600,13 @@ _BOOKING_SELECT = """
            b.service_type, b.client_area, b.time_slot, b.day_type, b.reliability_score,
            b.status, b.created_at, b.client_lat, b.client_lng,
            r.rating, r.comment, r.created_at,
-           b.cancelled_by, b.cancellation_reason, b.job_date
+           b.cancelled_by, b.cancellation_reason, b.job_date,
+           rs.proposed_by, rs.job_date, rs.time_slot, rs.created_at
     FROM bookings b
     LEFT JOIN clients c ON b.client_id = c.client_id
     LEFT JOIN service_providers sp ON b.provider_id = sp.provider_id
     LEFT JOIN booking_reviews r ON r.booking_id = b.booking_id
+    LEFT JOIN booking_reschedules rs ON rs.booking_id = b.booking_id AND rs.status = 'pending'
 """
 
 
@@ -589,6 +633,9 @@ def _row_to_booking(row):
         "cancelled_by": row[18],
         "cancellation_reason": row[19],
         "job_date": row[20],
+        "reschedule": {"proposed_by": row[21], "job_date": row[22], "time_slot": row[23],
+                       "created_at": row[24]}
+        if row[21] is not None else None,
     }
 
 
@@ -629,6 +676,35 @@ def _update_booking_status(cursor, booking_id, status, cancelled_by=None, reason
     cursor.execute(
         "UPDATE bookings SET status = %s, cancelled_by = %s, cancellation_reason = %s WHERE booking_id = %s",
         (status, cancelled_by, reason, booking_id),
+    )
+
+
+def _insert_reschedule(cursor, booking_id, proposed_by, job_date, time_slot,
+                       previous_job_date, previous_time_slot):
+    cursor.execute(
+        """
+        INSERT INTO booking_reschedules
+            (booking_id, proposed_by, job_date, time_slot, previous_job_date, previous_time_slot)
+        VALUES (%s, %s, %s, %s, %s, %s)
+        """,
+        (booking_id, proposed_by, job_date, time_slot, previous_job_date, previous_time_slot),
+    )
+
+
+def _resolve_reschedule(cursor, booking_id, status):
+    """Close the booking's open proposal, if it has one."""
+    cursor.execute(
+        "UPDATE booking_reschedules SET status = %s, resolved_at = NOW() "
+        "WHERE booking_id = %s AND status = 'pending'",
+        (status, booking_id),
+    )
+
+
+def _move_booking(cursor, booking_id, job_date, time_slot, day_type, reliability_score):
+    cursor.execute(
+        "UPDATE bookings SET job_date = %s, time_slot = %s, day_type = %s, reliability_score = %s "
+        "WHERE booking_id = %s",
+        (job_date, time_slot, day_type, reliability_score, booking_id),
     )
 
 
@@ -679,6 +755,10 @@ def _booking_label(booking):
     job_date = booking.get("job_date")
     when = job_date.strftime("%a %d %b %Y") if job_date else booking["day_type"]
     return f"booking #{booking['booking_id']} ({booking['service_type']}, {booking['client_area']}, {slot}, {when})"
+
+
+def _when_label(time_slot, job_date):
+    return f"{time_slot.replace('_', ' ')}, {job_date.strftime('%a %d %b %Y')}"
 
 
 def _status_change_notice(booking, new_status, actor, reason=None):
@@ -1203,6 +1283,9 @@ def update_booking_status(booking_id: int, req: BookingStatusUpdate):
         _update_booking_status(cursor, booking_id, new_status,
                                cancelled_by=actor if cancelling else None,
                                reason=req.reason if cancelling else None)
+        if new_status in ("cancelled", "completed"):
+            # A proposal to move a booking that is over can no longer be answered.
+            _resolve_reschedule(cursor, booking_id, "withdrawn")
 
         column, recipient_id, message = _status_change_notice(booking, new_status, actor, req.reason)
         recipient_user = _user_id_for(cursor, column, recipient_id)
@@ -1213,6 +1296,127 @@ def update_booking_status(booking_id: int, req: BookingStatusUpdate):
         conn.commit()
         return BookingResponse(**updated)
     except HTTPException:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def _reschedulable_booking(cursor, booking_id, actor, actor_id):
+    """Lock and return a booking the actor may reschedule, or raise."""
+    if actor not in BOOKING_TRANSITIONS:
+        raise HTTPException(422, "actor must be 'client' or 'provider'.")
+    _lock_booking(cursor, booking_id)
+    booking = _fetch_booking(cursor, booking_id)
+    if booking is None:
+        raise HTTPException(404, f"Unknown booking_id: {booking_id}")
+    # Same prototype ownership check as status updates, NOT session auth.
+    if booking[f"{actor}_id"] != actor_id:
+        raise HTTPException(403, f"This booking does not belong to {actor} {actor_id}.")
+    if booking["status"] not in ("pending", "confirmed"):
+        raise HTTPException(409, f"A '{booking['status']}' booking cannot be rescheduled.")
+    return booking
+
+
+def _notify_counterpart(cursor, booking, actor, message):
+    """Notify the party who is not `actor`, if they have an account."""
+    column = "provider_id" if actor == "client" else "client_id"
+    recipient = _user_id_for(cursor, column, booking[column])
+    if recipient:
+        _insert_notification(cursor, recipient, message)
+
+
+@app.post("/bookings/{booking_id}/reschedule", response_model=BookingResponse, status_code=201)
+def propose_reschedule(booking_id: int, req: RescheduleProposal):
+    actor = req.actor.strip().lower()
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        booking = _reschedulable_booking(cursor, booking_id, actor, req.actor_id)
+        if booking.get("reschedule"):
+            raise HTTPException(409, "This booking already has a reschedule request waiting for an answer.")
+        if (req.job_date, req.time_slot) == (booking.get("job_date"), booking["time_slot"]):
+            raise HTTPException(422, "That is the booking's current date and time slot.")
+        if not is_provider_available(booking["provider_id"], req.job_date.strftime("%A"), req.time_slot,
+                                     ref.get("availability")):
+            raise HTTPException(409, "This provider is not available for that day and time slot.")
+
+        _insert_reschedule(cursor, booking_id, actor, req.job_date, req.time_slot,
+                           booking.get("job_date"), booking["time_slot"])
+        name = booking[f"{actor}_name"]
+        _notify_counterpart(
+            cursor, booking, actor,
+            f"{name} asked to move {_booking_label(booking)} to {_when_label(req.time_slot, req.job_date)}. "
+            f"Accept or decline it in your bookings.",
+        )
+        updated = _fetch_booking(cursor, booking_id)
+        conn.commit()
+        return BookingResponse(**updated)
+    except psycopg2.errors.UniqueViolation:
+        conn.rollback()
+        raise HTTPException(409, "This booking already has a reschedule request waiting for an answer.")
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+@app.patch("/bookings/{booking_id}/reschedule", response_model=BookingResponse)
+def answer_reschedule(booking_id: int, req: RescheduleDecision):
+    actor = req.actor.strip().lower()
+    decision = req.decision.strip().lower()
+    if decision not in ("accept", "decline", "withdraw"):
+        raise HTTPException(422, "decision must be 'accept', 'decline' or 'withdraw'.")
+
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        booking = _reschedulable_booking(cursor, booking_id, actor, req.actor_id)
+        proposal = booking.get("reschedule")
+        if not proposal:
+            raise HTTPException(409, "This booking has no reschedule request waiting for an answer.")
+        own = proposal["proposed_by"] == actor
+        if decision == "withdraw" and not own:
+            raise HTTPException(403, "Only the party who asked to reschedule can withdraw the request.")
+        if decision != "withdraw" and own:
+            raise HTTPException(403, "The other party has to answer your reschedule request.")
+
+        name = booking[f"{actor}_name"]
+        label = _booking_label(booking)
+        new_when = _when_label(proposal["time_slot"], proposal["job_date"])
+        if decision == "accept":
+            # Checked again: time has passed and availability may have changed.
+            if proposal["job_date"] < _today_in_nairobi():
+                raise HTTPException(409, "The proposed date has passed. Decline it and ask for a new one.")
+            if not is_provider_available(booking["provider_id"], proposal["job_date"].strftime("%A"),
+                                         proposal["time_slot"], ref.get("availability")):
+                raise HTTPException(409, "This provider is no longer available for that day and time slot.")
+            match = ref["providers"].loc[ref["providers"].provider_id == booking["provider_id"]]
+            if match.empty:
+                raise HTTPException(404, f"Unknown provider_id: {booking['provider_id']}")
+            # The context changed, so the stored prediction is recomputed for it.
+            day_type = _day_type_of(proposal["job_date"])
+            latlng = ((booking["client_lat"], booking["client_lng"])
+                      if booking.get("client_lat") is not None else None)
+            score, _ = _score_provider(booking["client_area"], match.iloc[0], proposal["time_slot"],
+                                       day_type, latlng)
+            _move_booking(cursor, booking_id, proposal["job_date"], proposal["time_slot"], day_type,
+                          round(max(0.0, min(1.0, score)), 3))
+            _resolve_reschedule(cursor, booking_id, "accepted")
+            message = f"{name} accepted your request: {label} is now {new_when}."
+        elif decision == "decline":
+            _resolve_reschedule(cursor, booking_id, "declined")
+            message = f"{name} declined your request to move {label} to {new_when}. The booking is unchanged."
+        else:
+            _resolve_reschedule(cursor, booking_id, "withdrawn")
+            message = f"{name} withdrew the request to move {label} to {new_when}. The booking is unchanged."
+
+        _notify_counterpart(cursor, booking, actor, message)
+        updated = _fetch_booking(cursor, booking_id)
+        conn.commit()
+        return BookingResponse(**updated)
+    except Exception:
         conn.rollback()
         raise
     finally:

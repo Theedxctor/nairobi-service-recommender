@@ -41,6 +41,34 @@ When nothing matches, the response is `200` with an empty list (`404` still
 means no provider offers the service or none is available). Each ranked
 provider also reports `is_verified`.
 
+## Rescheduling (#83)
+
+Apply `database/migrations/006_booking_reschedules.sql` to existing databases
+**before** running this API version (booking queries join the new table). It
+is safe to rerun.
+
+`POST /bookings/{id}/reschedule` proposes a new date and time slot for a
+pending or confirmed booking:
+
+```json
+{"actor": "client", "actor_id": "C0501", "job_date": "2026-10-20", "time_slot": "midday"}
+```
+
+Either party may propose. The date follows the same rules as `job_date`
+above, must differ from the booking's current date and slot, and the provider
+must be available on that weekday (`409` otherwise). A booking has at most one
+open proposal (`409` for a second). The booking itself does not change yet; it
+reports the open proposal as `reschedule`.
+
+`PATCH /bookings/{id}/reschedule` answers it with `decision`: the other party
+sends `accept` or `decline`, the proposer may `withdraw` (`403` for the wrong
+party). On `accept`, availability is checked again and the booking's
+`job_date`, `time_slot`, `day_type` and `reliability_score` are updated in one
+transaction, the score being predicted again for the new slot and the
+booking's stored location. The booking's status is unchanged. Cancelling or
+completing a booking closes its open proposal. Each step notifies the other
+party. `booking_reschedules` keeps every proposal with what it was moved from.
+
 ## Dated scheduling (#82)
 
 Apply `database/migrations/005_booking_job_date.sql` to existing databases
