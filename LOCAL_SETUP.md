@@ -55,6 +55,12 @@ DB_HOST=localhost DB_PORT=5433 DB_NAME=nairobi_recommender DB_USER=postgres DB_P
   uvicorn api:app --host 127.0.0.1 --port 8000
 ```
 
+New accounts must verify their email before booking. Locally no email is sent:
+the verification link is printed in this terminal instead. To run the browser
+tests (`tests/e2e`), also put `E2E_VERIFY_SECRET=local-e2e-secret` in front of
+the `uvicorn` command. Google sign-in and real email need the settings listed
+in `ml-service/README.md`.
+
 Leave this running. Check it worked: open `http://localhost:8000/health` or
 `http://localhost:8000/docs`.
 

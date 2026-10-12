@@ -1,10 +1,20 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { API_BASE_URL } from "@/lib/api";
+import GoogleSignIn from "../google-sign-in";
+import {
+  exchangeGoogleCredential,
+  readPendingGoogle,
+  setJustRegistered,
+  setPendingGoogle,
+  storeAuth,
+  type NaiserveAuth,
+  type PendingGoogle,
+} from "../use-auth-guard";
 import type { LocateResult } from "@/lib/location";
 import { LocationField } from "../location-field";
 import type { LatLng } from "../location-picker";
@@ -43,6 +53,12 @@ interface FormState {
 
 type FormErrors = Partial<Record<keyof FormState, string>>;
 
+const ROLE_REDIRECTS: Record<string, string> = {
+  client: "/dashboard",
+  provider: "/provider/dashboard",
+  admin: "/admin/dashboard",
+};
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export default function RegisterPage() {
@@ -64,6 +80,42 @@ export default function RegisterPage() {
   const [errors, setErrors] = useState<FormErrors>({});
   const [apiError, setApiError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Signing up with Google (#95): the email comes from Google and there is no
+  // password, so those fields are replaced by a note.
+  const [google, setGoogle] = useState<PendingGoogle | null>(null);
+
+  const startGoogleSignup = (pending: PendingGoogle) => {
+    setPendingGoogle(pending);
+    setGoogle(pending);
+    setForm((prev) => ({ ...prev, fullName: prev.fullName || pending.name || "" }));
+  };
+
+  useEffect(() => {
+    const pending = readPendingGoogle(); // set by /login for a new Google user
+    if (pending) startGoogleSignup(pending);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const signIn = (account: Partial<NaiserveAuth>) => {
+    const { user_id, role, name, client_id, provider_id, email_verified } = account;
+    storeAuth({ user_id, role, name, client_id, provider_id, email_verified } as NaiserveAuth);
+    setPendingGoogle(null);
+    router.push(ROLE_REDIRECTS[role ?? ""] ?? "/");
+  };
+
+  const handleGoogle = async (credential: string) => {
+    setApiError(null);
+    setLoading(true);
+    try {
+      const result = await exchangeGoogleCredential(API_BASE_URL, credential);
+      if (result.registered) signIn(result); // they already have an account
+      else startGoogleSignup({ credential, email: result.email, name: result.name });
+    } catch (e) {
+      setApiError(e instanceof TypeError ? "Could not reach the server. Please try again." : (e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const updateField = (field: keyof FormState, value: string) => {
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -74,20 +126,22 @@ export default function RegisterPage() {
     if (!form.fullName.trim()) nextErrors.fullName = "Full name is required.";
     if (!form.phone.trim()) nextErrors.phone = "Phone number is required.";
 
-    if (!form.email.trim()) {
-      nextErrors.email = "Email is required.";
-    } else if (!EMAIL_PATTERN.test(form.email.trim())) {
-      nextErrors.email = "Enter a valid email address.";
-    }
+    if (!google) {
+      if (!form.email.trim()) {
+        nextErrors.email = "Email is required.";
+      } else if (!EMAIL_PATTERN.test(form.email.trim())) {
+        nextErrors.email = "Enter a valid email address.";
+      }
 
-    if (!form.password) {
-      nextErrors.password = "Password is required.";
-    } else if (form.password.length < 8) {
-      nextErrors.password = "Password must be at least 8 characters.";
-    }
+      if (!form.password) {
+        nextErrors.password = "Password is required.";
+      } else if (form.password.length < 8) {
+        nextErrors.password = "Password must be at least 8 characters.";
+      }
 
-    if (form.confirmPassword !== form.password) {
-      nextErrors.confirmPassword = "Passwords do not match.";
+      if (form.confirmPassword !== form.password) {
+        nextErrors.confirmPassword = "Passwords do not match.";
+      }
     }
 
     if (form.role === "provider") {
@@ -113,8 +167,9 @@ export default function RegisterPage() {
     }
 
     const payload: Record<string, unknown> = {
-      email: form.email.trim().toLowerCase(),
-      password: form.password,
+      ...(google
+        ? { google_credential: google.credential }
+        : { email: form.email.trim().toLowerCase(), password: form.password }),
       role: form.role,
       name: form.fullName.trim(),
       phone: form.phone.trim(),
@@ -143,10 +198,23 @@ export default function RegisterPage() {
       const data = await res.json();
 
       if (!res.ok) {
-        setApiError(data.detail || "Registration failed. Please try again.");
+        if (google && res.status === 401) {
+          // Google's token is short-lived; it ran out while the form was open.
+          setPendingGoogle(null);
+          setGoogle(null);
+          setApiError("Your Google sign-in expired. Choose Sign up with Google again to finish.");
+          return;
+        }
+        setApiError(typeof data.detail === "string" ? data.detail : "Registration failed. Please try again.");
         return;
       }
 
+      if (google) {
+        // Verified by Google, so go straight in.
+        signIn(await exchangeGoogleCredential(API_BASE_URL, google.credential));
+        return;
+      }
+      setJustRegistered({ email: payload.email as string, emailSent: Boolean(data.verification_email_sent) });
       router.push("/login");
     } catch {
       setApiError("Could not reach the server. Please try again.");
@@ -196,7 +264,31 @@ export default function RegisterPage() {
             </div>
           )}
 
-          <form onSubmit={handleSubmit} noValidate className="mt-8 space-y-5">
+          {google ? (
+            <div role="status" className="mt-8 rounded-md border border-teal-200 bg-teal-50 p-3 text-sm text-teal-900">
+              <p>
+                Signing up with Google as{" "}
+                <span className="font-semibold [overflow-wrap:anywhere]">{google.email}</span>. Tell us a little more
+                to finish.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingGoogle(null);
+                  setGoogle(null);
+                }}
+                className="mt-1 font-medium text-teal-800 underline hover:text-teal-900"
+              >
+                Use an email and password instead
+              </button>
+            </div>
+          ) : (
+            <div className="mt-8">
+              <GoogleSignIn onCredential={handleGoogle} label="signup_with" />
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} noValidate className="mt-6 space-y-5">
             {/* Role */}
             <div>
               <label className="mb-2 block text-sm font-medium text-stone-700">
@@ -277,56 +369,61 @@ export default function RegisterPage() {
               {errors.phone && <p className="mt-1 text-xs text-red-600">{errors.phone}</p>}
             </div>
 
-            {/* Email */}
-            <div>
-              <label htmlFor="email" className="mb-1 block text-sm font-medium text-stone-700">
-                Email
-              </label>
-              <input
-                type="email"
-                id="email"
-                placeholder="you@example.com"
-                value={form.email}
-                onChange={(e) => updateField("email", e.target.value)}
-                disabled={loading}
-                className="w-full rounded-md border border-stone-300 bg-white px-3.5 py-2.5 text-sm text-stone-800 focus:border-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-700/30 disabled:bg-stone-50 disabled:text-stone-400"
-              />
-              {errors.email && <p className="mt-1 text-xs text-red-600">{errors.email}</p>}
-            </div>
+            {/* Email and password: not asked for when signing up with Google */}
+            {!google && (
+              <>
+                {/* Email */}
+                <div>
+                  <label htmlFor="email" className="mb-1 block text-sm font-medium text-stone-700">
+                    Email
+                  </label>
+                  <input
+                    type="email"
+                    id="email"
+                    placeholder="you@example.com"
+                    value={form.email}
+                    onChange={(e) => updateField("email", e.target.value)}
+                    disabled={loading}
+                    className="w-full rounded-md border border-stone-300 bg-white px-3.5 py-2.5 text-sm text-stone-800 focus:border-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-700/30 disabled:bg-stone-50 disabled:text-stone-400"
+                  />
+                  {errors.email && <p className="mt-1 text-xs text-red-600">{errors.email}</p>}
+                </div>
 
-            {/* Password */}
-            <div>
-              <label htmlFor="password" className="mb-1 block text-sm font-medium text-stone-700">
-                Password
-              </label>
-              <input
-                type="password"
-                id="password"
-                value={form.password}
-                onChange={(e) => updateField("password", e.target.value)}
-                disabled={loading}
-                className="w-full rounded-md border border-stone-300 bg-white px-3.5 py-2.5 text-sm text-stone-800 focus:border-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-700/30 disabled:bg-stone-50 disabled:text-stone-400"
-              />
-              {errors.password && <p className="mt-1 text-xs text-red-600">{errors.password}</p>}
-            </div>
+                {/* Password */}
+                <div>
+                  <label htmlFor="password" className="mb-1 block text-sm font-medium text-stone-700">
+                    Password
+                  </label>
+                  <input
+                    type="password"
+                    id="password"
+                    value={form.password}
+                    onChange={(e) => updateField("password", e.target.value)}
+                    disabled={loading}
+                    className="w-full rounded-md border border-stone-300 bg-white px-3.5 py-2.5 text-sm text-stone-800 focus:border-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-700/30 disabled:bg-stone-50 disabled:text-stone-400"
+                  />
+                  {errors.password && <p className="mt-1 text-xs text-red-600">{errors.password}</p>}
+                </div>
 
-            {/* Confirm Password */}
-            <div>
-              <label htmlFor="confirmPassword" className="mb-1 block text-sm font-medium text-stone-700">
-                Confirm Password
-              </label>
-              <input
-                type="password"
-                id="confirmPassword"
-                value={form.confirmPassword}
-                onChange={(e) => updateField("confirmPassword", e.target.value)}
-                disabled={loading}
-                className="w-full rounded-md border border-stone-300 bg-white px-3.5 py-2.5 text-sm text-stone-800 focus:border-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-700/30 disabled:bg-stone-50 disabled:text-stone-400"
-              />
-              {errors.confirmPassword && (
-                <p className="mt-1 text-xs text-red-600">{errors.confirmPassword}</p>
-              )}
-            </div>
+                {/* Confirm Password */}
+                <div>
+                  <label htmlFor="confirmPassword" className="mb-1 block text-sm font-medium text-stone-700">
+                    Confirm Password
+                  </label>
+                  <input
+                    type="password"
+                    id="confirmPassword"
+                    value={form.confirmPassword}
+                    onChange={(e) => updateField("confirmPassword", e.target.value)}
+                    disabled={loading}
+                    className="w-full rounded-md border border-stone-300 bg-white px-3.5 py-2.5 text-sm text-stone-800 focus:border-teal-700 focus:outline-none focus:ring-2 focus:ring-teal-700/30 disabled:bg-stone-50 disabled:text-stone-400"
+                  />
+                  {errors.confirmPassword && (
+                    <p className="mt-1 text-xs text-red-600">{errors.confirmPassword}</p>
+                  )}
+                </div>
+              </>
+            )}
 
             {/* Exact location, with the area select as fallback (#73) */}
             <LocationField

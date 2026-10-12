@@ -1,10 +1,19 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 
 import { API_BASE_URL } from "@/lib/api";
+import GoogleSignIn from "../google-sign-in";
+import {
+  exchangeGoogleCredential,
+  setPendingGoogle,
+  storeAuth,
+  takeJustRegistered,
+  type JustRegistered,
+  type NaiserveAuth,
+} from "../use-auth-guard";
 
 interface LoginResponse {
   user_id: string;
@@ -12,6 +21,7 @@ interface LoginResponse {
   name?: string;
   client_id?: string;
   provider_id?: string;
+  email_verified?: boolean;
 }
 
 const ROLE_REDIRECTS: Record<LoginResponse["role"], string> = {
@@ -26,6 +36,37 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  // Set when arriving straight from the register form (#95).
+  const [registered, setRegistered] = useState<JustRegistered | null>(null);
+
+  useEffect(() => {
+    const just = takeJustRegistered();
+    if (just) {
+      setRegistered(just);
+      setEmail(just.email);
+    }
+  }, []);
+
+  const handleGoogle = async (credential: string) => {
+    setError(null);
+    setLoading(true);
+    try {
+      const result = await exchangeGoogleCredential(API_BASE_URL, credential);
+      if (!result.registered) {
+        // No NaiServe account yet: finish on the register form, already signed in to Google.
+        setPendingGoogle({ credential, email: result.email, name: result.name });
+        router.push("/register");
+        return;
+      }
+      const { user_id, role, name, client_id, provider_id, email_verified } = result;
+      storeAuth({ user_id, role, name, client_id, provider_id, email_verified } as NaiserveAuth);
+      router.push(ROLE_REDIRECTS[role as LoginResponse["role"]] ?? "/");
+    } catch (e) {
+      setError(e instanceof TypeError ? "Could not reach the server. Please try again." : (e as Error).message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,13 +134,29 @@ export default function LoginPage() {
             </p>
           </div>
 
+          {registered && (
+            <div role="status" className="mt-6 rounded-md border border-teal-200 bg-teal-50 p-3 text-sm text-teal-900">
+              <p className="font-semibold">Account created.</p>
+              <p className="mt-1">
+                {registered.emailSent
+                  ? `We sent a verification link to ${registered.email}. `
+                  : "We could not email your verification link just now; you can ask for it again after logging in. "}
+                You can log in now, and will need to verify before booking or accepting jobs.
+              </p>
+            </div>
+          )}
+
           {error && (
-            <div className="mt-6 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <div role="alert" className="mt-6 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
               {error}
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="mt-8 space-y-5">
+          <div className="mt-8">
+            <GoogleSignIn onCredential={handleGoogle} label="continue_with" />
+          </div>
+
+          <form onSubmit={handleSubmit} className="mt-6 space-y-5">
             {/* Email */}
             <div>
               <label htmlFor="email" className="mb-1 block text-sm font-medium text-stone-700">
