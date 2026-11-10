@@ -1,0 +1,4 @@
+booking_id,service_type,distance_km,congestion_multiplier,time_slot,provider_area_road_quality,provider_completion_rate,arrival_reliability_score
+B00001,plumber,10.73,2.02,morning_rush,good,0.977,0.9744
+B00002,plumber,24.83,1.94,early_afternoon,poor,0.904,0.7068
+B00003,technician,18.43,4.0,evening_rush,poor,0.809,0.3562

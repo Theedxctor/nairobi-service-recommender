@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
 
 export type Role = "client" | "provider" | "admin";
 
@@ -41,18 +40,17 @@ export function clearAuth() {
  * once the check has run and the page is safe to render.
  */
 export function useAuthGuard(allowedRoles: Role[]) {
-  const router = useRouter();
   const [auth, setAuth] = useState<NaiserveAuth | null>(null);
   const [checked, setChecked] = useState(false);
 
   useEffect(() => {
     const stored = readAuth();
     if (!stored) {
-      router.replace("/login");
+      window.location.replace("/login");
       return;
     }
     if (!allowedRoles.includes(stored.role)) {
-      router.replace(ROLE_HOME[stored.role] ?? "/");
+      window.location.replace(ROLE_HOME[stored.role] ?? "/");
       return;
     }
     setAuth(stored);

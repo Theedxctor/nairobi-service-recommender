@@ -24,8 +24,10 @@ Endpoints:
 Run with:  uvicorn api:app --reload --port 8000
 Docs at:   http://localhost:8000/docs
 """
+import json
 import os
 import re
+import threading
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from fastapi import FastAPI, HTTPException
@@ -42,6 +44,7 @@ from feature_engineering import (
     nearest_area,
     MAX_KM_FROM_NEAREST_AREA,
     MODEL_FEATURES,
+    TIME_SLOT_RANGES,
     is_provider_available,
     _get_db_connection,
     _hash_password,
@@ -73,6 +76,16 @@ if not MODEL_PATH.exists():
 pipeline = joblib.load(MODEL_PATH)
 ref = load_reference_data()
 
+MODEL_METRICS_PATH = BASE_DIR / "results" / "latest_model_metrics.json"
+_retrain_lock = threading.Lock()
+_retrain_state = {
+    "status": "idle",
+    "requested_by": None,
+    "requested_at": None,
+    "completed_at": None,
+    "message": "No retraining job has run in this API process.",
+}
+
 
 # ---------------------------------------------------------------------------
 # Schemas
@@ -101,7 +114,11 @@ JOB_DATE_MAX_DAYS_AHEAD = 60
 
 
 def _today_in_nairobi():
-    return datetime.now(NAIROBI_TZ).date()
+    return _now_in_nairobi().date()
+
+
+def _now_in_nairobi():
+    return datetime.now(NAIROBI_TZ)
 
 
 def _check_job_date(job_date):
@@ -110,6 +127,18 @@ def _check_job_date(job_date):
         raise ValueError("job_date cannot be in the past.")
     if job_date > today + timedelta(days=JOB_DATE_MAX_DAYS_AHEAD):
         raise ValueError(f"job_date cannot be more than {JOB_DATE_MAX_DAYS_AHEAD} days ahead.")
+
+
+def _check_job_time_slot(job_date, time_slot):
+    """Reject a same-day slot once its Nairobi-time window has ended."""
+    now = _now_in_nairobi()
+    if job_date != now.date():
+        return
+    _, end = TIME_SLOT_RANGES[time_slot]
+    end_hour, end_minute = (int(part) for part in end.split(":"))
+    if now.hour * 60 + now.minute >= end_hour * 60 + end_minute:
+        label = time_slot.replace("_", " ")
+        raise ValueError(f"The {label} time slot has already ended today at {end} Nairobi time.")
 
 
 def _day_type_of(job_date):
@@ -141,6 +170,7 @@ class ContextFields(BaseModel):
                 raise ValueError("Send job_date or day_type.")
             return self
         _check_job_date(self.job_date)
+        _check_job_time_slot(self.job_date, self.time_slot)
         derived = _day_type_of(self.job_date)
         if self.day_type is not None and self.day_type != derived:
             raise ValueError(f"{self.job_date.isoformat()} is a {self.job_date.strftime('%A')}, "
@@ -313,6 +343,11 @@ class RescheduleProposal(BaseModel):
         _check_job_date(v)
         return v
 
+    @model_validator(mode="after")
+    def _check_slot_has_not_ended(self):
+        _check_job_time_slot(self.job_date, self.time_slot)
+        return self
+
 
 class RescheduleDecision(BaseModel):
     actor: str = Field(..., examples=["provider"])
@@ -378,6 +413,44 @@ class LocateResponse(BaseModel):
 class LocationUpdate(BaseModel):
     lat: float = Field(..., ge=-90, le=90)
     lng: float = Field(..., ge=-180, le=180)
+
+
+class AdminVerificationUpdate(BaseModel):
+    admin_user_id: str
+    decision: str = Field(..., examples=["approve"])
+    note: Optional[str] = Field(None, max_length=500)
+
+    @field_validator("decision")
+    @classmethod
+    def _valid_decision(cls, value):
+        decision = value.strip().lower()
+        if decision not in ("approve", "reject"):
+            raise ValueError("decision must be 'approve' or 'reject'.")
+        return decision
+
+    @field_validator("note")
+    @classmethod
+    def _trim_note(cls, value):
+        return (value.strip() or None) if value is not None else None
+
+
+class AdminProviderResponse(BaseModel):
+    provider_id: str
+    name: str
+    service_type: str
+    base_area_name: Optional[str] = None
+    phone: Optional[str] = None
+    email: Optional[str] = None
+    status: str
+    is_verified: bool
+    review_note: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+    reviewed_by: Optional[str] = None
+    registered_at: Optional[datetime] = None
+
+
+class AdminRetrainRequest(BaseModel):
+    admin_user_id: str
 
 
 # ---------------------------------------------------------------------------
@@ -452,6 +525,89 @@ def _insert_user(cursor, user_id, email, password_hash, role, client_id, provide
         """,
         (user_id, email, password_hash, role, client_id, provider_id),
     )
+
+
+# ---------------------------------------------------------------------------
+# Administrator helpers. The current prototype still has no signed session
+# token, but every admin operation verifies the claimed user_id against the
+# database instead of trusting a role sent by the browser.
+# ---------------------------------------------------------------------------
+def _require_admin(cursor, user_id):
+    cursor.execute("SELECT role FROM users WHERE user_id = %s", (user_id,))
+    row = cursor.fetchone()
+    if row is None or row[0] != "admin":
+        raise HTTPException(403, "An administrator account is required.")
+
+
+def _admin_provider_from_row(row):
+    return {
+        "provider_id": row[0],
+        "name": row[1],
+        "service_type": row[2],
+        "base_area_name": row[3],
+        "phone": row[4],
+        "email": row[5],
+        "is_verified": bool(row[6]),
+        "status": row[7],
+        "review_note": row[8],
+        "reviewed_at": row[9],
+        "reviewed_by": row[10],
+        "registered_at": row[11].replace(tzinfo=timezone.utc) if row[11] and row[11].tzinfo is None else row[11],
+    }
+
+
+def _fetch_admin_providers(cursor, status=None, provider_id=None):
+    cursor.execute(
+        """
+        SELECT sp.provider_id, sp.name, sp.service_type, na.area_name, sp.phone,
+               u.email, sp.is_verified,
+               COALESCE(pir.status, CASE WHEN sp.is_verified THEN 'approved' ELSE 'pending' END),
+               pir.note, pir.reviewed_at, pir.reviewed_by, u.created_at
+        FROM service_providers sp
+        LEFT JOIN nairobi_areas na ON na.area_id = sp.base_area_id
+        LEFT JOIN users u ON u.provider_id = sp.provider_id AND u.role = 'provider'
+        LEFT JOIN provider_identity_reviews pir ON pir.provider_id = sp.provider_id
+        WHERE (%s IS NULL OR sp.provider_id = %s)
+        ORDER BY sp.name, sp.provider_id
+        """,
+        (provider_id, provider_id),
+    )
+    providers = [_admin_provider_from_row(row) for row in cursor.fetchall()]
+    return [provider for provider in providers if status is None or provider["status"] == status]
+
+
+def _load_model_metrics():
+    try:
+        return json.loads(MODEL_METRICS_PATH.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {"dataset": "unknown", "message": "Model metrics artifact is unavailable."}
+
+
+def _run_model_retraining(requested_by):
+    global pipeline
+    with _retrain_lock:
+        _retrain_state.update(status="running", message="Training and evaluation are in progress.")
+    try:
+        from finalize_model import train_and_evaluate
+
+        replacement, metrics = train_and_evaluate(save=True)
+        pipeline = replacement
+        with _retrain_lock:
+            _retrain_state.update(
+                status="succeeded",
+                completed_at=datetime.now(timezone.utc).isoformat(),
+                message=(
+                    f"Retraining completed on {metrics['records']} synthetic records; "
+                    f"held-out RMSE {metrics['test']['rmse']:.4f}."
+                ),
+            )
+    except Exception as exc:
+        with _retrain_lock:
+            _retrain_state.update(
+                status="failed",
+                completed_at=datetime.now(timezone.utc).isoformat(),
+                message=f"Retraining failed: {exc}",
+            )
 
 
 def _add_provider_to_cache(provider_id, req, base_area_id=None, lat=None, lng=None):
@@ -863,6 +1019,157 @@ def health():
         "areas_loaded": len(ref["areas"]) if "areas" in ref else 0,
         "availability_loaded": len(ref["availability"]) if "availability" in ref else 0,
     }
+
+
+@app.get("/admin/overview")
+def admin_overview(admin_user_id: str):
+    """Live platform and packaged-model evidence for system monitoring."""
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        _require_admin(cursor, admin_user_id)
+        cursor.execute(
+            """
+            SELECT
+              (SELECT COUNT(*) FROM bookings),
+              (SELECT COUNT(*) FROM bookings WHERE status = 'pending'),
+              (SELECT COUNT(*) FROM bookings WHERE status = 'confirmed'),
+              (SELECT COUNT(*) FROM bookings WHERE status = 'completed'),
+              (SELECT COUNT(*) FROM bookings WHERE status = 'cancelled'),
+              (SELECT COUNT(*) FROM service_providers),
+              (SELECT COUNT(*) FROM service_providers WHERE is_verified = true),
+              (SELECT COUNT(*) FROM service_providers sp
+                 LEFT JOIN provider_identity_reviews pir ON pir.provider_id = sp.provider_id
+                 WHERE sp.is_verified = false AND pir.provider_id IS NULL),
+              (SELECT COUNT(*) FROM provider_identity_reviews WHERE status = 'rejected'),
+              (SELECT COUNT(*) FROM booking_reviews),
+              (SELECT AVG(rating) FROM booking_reviews)
+            """
+        )
+        row = cursor.fetchone()
+    finally:
+        conn.close()
+
+    with _retrain_lock:
+        retraining = dict(_retrain_state)
+    return {
+        "platform": {
+            "total_bookings": row[0],
+            "pending_bookings": row[1],
+            "confirmed_bookings": row[2],
+            "completed_bookings": row[3],
+            "cancelled_bookings": row[4],
+            "total_providers": row[5],
+            "verified_providers": row[6],
+            "pending_verifications": row[7],
+            "rejected_verifications": row[8],
+            "reviews": row[9],
+            "average_review_rating": round(float(row[10]), 2) if row[10] is not None else None,
+            "providers_loaded": len(ref.get("providers", [])),
+            "areas_loaded": len(ref.get("areas", [])),
+        },
+        "model": _load_model_metrics(),
+        "retraining": retraining,
+    }
+
+
+@app.get("/admin/providers", response_model=list[AdminProviderResponse])
+def admin_providers(admin_user_id: str, status: Optional[str] = None):
+    if status is not None and status not in ("pending", "approved", "rejected"):
+        raise HTTPException(422, "status must be pending, approved or rejected.")
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        _require_admin(cursor, admin_user_id)
+        return _fetch_admin_providers(cursor, status=status)
+    finally:
+        conn.close()
+
+
+@app.patch("/admin/providers/{provider_id}/verification", response_model=AdminProviderResponse)
+def review_provider_identity(provider_id: str, req: AdminVerificationUpdate):
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        _require_admin(cursor, req.admin_user_id)
+        providers = _fetch_admin_providers(cursor, provider_id=provider_id)
+        if not providers:
+            raise HTTPException(404, f"Unknown provider_id: {provider_id}")
+
+        approved = req.decision == "approve"
+        review_status = "approved" if approved else "rejected"
+        cursor.execute(
+            "UPDATE service_providers SET is_verified = %s WHERE provider_id = %s",
+            (approved, provider_id),
+        )
+        cursor.execute(
+            """
+            INSERT INTO provider_identity_reviews (provider_id, status, reviewed_by, note, reviewed_at)
+            VALUES (%s, %s, %s, %s, NOW())
+            ON CONFLICT (provider_id) DO UPDATE SET
+                status = EXCLUDED.status,
+                reviewed_by = EXCLUDED.reviewed_by,
+                note = EXCLUDED.note,
+                reviewed_at = NOW()
+            """,
+            (provider_id, review_status, req.admin_user_id, req.note),
+        )
+        provider_user = _user_id_for(cursor, "provider_id", provider_id)
+        if provider_user:
+            outcome = "approved" if approved else "not approved"
+            note = f" Note: {req.note}" if req.note else ""
+            _insert_notification(cursor, provider_user, f"Your provider identity review was {outcome}.{note}")
+        updated = _fetch_admin_providers(cursor, provider_id=provider_id)[0]
+        conn.commit()
+    except HTTPException:
+        conn.rollback()
+        raise
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+    mask = ref["providers"].provider_id.astype(str) == provider_id
+    ref["providers"].loc[mask, "is_verified"] = approved
+    return updated
+
+
+@app.get("/admin/model/retrain/status")
+def model_retrain_status(admin_user_id: str):
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        _require_admin(cursor, admin_user_id)
+    finally:
+        conn.close()
+    with _retrain_lock:
+        return dict(_retrain_state)
+
+
+@app.post("/admin/model/retrain", status_code=202)
+def trigger_model_retraining(req: AdminRetrainRequest):
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        _require_admin(cursor, req.admin_user_id)
+    finally:
+        conn.close()
+
+    requested_at = datetime.now(timezone.utc).isoformat()
+    with _retrain_lock:
+        if _retrain_state["status"] in ("queued", "running"):
+            raise HTTPException(409, "A model retraining job is already running.")
+        _retrain_state.update(
+            status="queued",
+            requested_by=req.admin_user_id,
+            requested_at=requested_at,
+            completed_at=None,
+            message="Retraining request accepted and queued.",
+        )
+    threading.Thread(target=_run_model_retraining, args=(req.admin_user_id,), daemon=True).start()
+    with _retrain_lock:
+        return dict(_retrain_state)
 
 
 @app.get("/areas", response_model=list[str])
@@ -1389,6 +1696,10 @@ def answer_reschedule(booking_id: int, req: RescheduleDecision):
             # Checked again: time has passed and availability may have changed.
             if proposal["job_date"] < _today_in_nairobi():
                 raise HTTPException(409, "The proposed date has passed. Decline it and ask for a new one.")
+            try:
+                _check_job_time_slot(proposal["job_date"], proposal["time_slot"])
+            except ValueError as exc:
+                raise HTTPException(409, f"{exc} Decline it and ask for a new one.") from exc
             if not is_provider_available(booking["provider_id"], proposal["job_date"].strftime("%A"),
                                          proposal["time_slot"], ref.get("availability")):
                 raise HTTPException(409, "This provider is no longer available for that day and time slot.")

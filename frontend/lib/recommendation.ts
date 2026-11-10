@@ -45,6 +45,32 @@ export const TIME_SLOT_LABELS: Record<string, string> = {
   weekend_day: "Weekend Day (Daytime)",
 };
 
+// End of each booking window in Nairobi time. The API is the final authority;
+// this copy exists so the form can prevent an obviously stale selection.
+export const TIME_SLOT_END_MINUTES: Record<string, number> = {
+  morning_rush: 9 * 60,
+  midday: 14 * 60,
+  evening_rush: 19 * 60,
+  weekend_day: 18 * 60,
+};
+
+/** Current calendar date and minutes after midnight in fixed UTC+3 (Nairobi). */
+export function nairobiDateTime(now = new Date()): { date: string; minutes: number } {
+  const eat = new Date(now.getTime() + 3 * 60 * 60 * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return {
+    date: `${eat.getUTCFullYear()}-${pad(eat.getUTCMonth() + 1)}-${pad(eat.getUTCDate())}`,
+    minutes: eat.getUTCHours() * 60 + eat.getUTCMinutes(),
+  };
+}
+
+/** True once a selected slot's window has ended on today's Nairobi date. */
+export function isPastTimeSlot(jobDate: string, timeSlot: string, now = new Date()): boolean {
+  const end = TIME_SLOT_END_MINUTES[timeSlot];
+  const current = nairobiDateTime(now);
+  return end !== undefined && jobDate === current.date && current.minutes >= end;
+}
+
 // The /request page hands its result to /results through sessionStorage, so
 // a refresh of /results keeps the same list without re-running the model.
 const STORAGE_KEY = "naiserve_last_recommendation";

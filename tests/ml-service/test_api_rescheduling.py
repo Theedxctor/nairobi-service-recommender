@@ -250,6 +250,15 @@ def test_accepting_a_date_that_has_passed_is_refused(client, db, monkeypatch):
     assert db.moved is None and db.booking["reschedule"] is not None
 
 
+def test_accepting_a_time_slot_that_has_ended_today_is_refused(client, db, monkeypatch):
+    db.booking = _booking(reschedule=_proposal(job_date=MONDAY, time_slot="morning_rush"))
+    monkeypatch.setattr(api, "_now_in_nairobi",
+                        lambda: datetime(2026, 10, 12, 12, 0, tzinfo=api.NAIROBI_TZ))
+    res = _answer(client, "accept")
+    assert res.status_code == 409 and "already ended today" in res.json()["detail"]
+    assert db.moved is None and db.booking["reschedule"] is not None
+
+
 def test_accepting_rechecks_availability(client, db, monkeypatch):
     db.booking = _booking(reschedule=_proposal())
     monkeypatch.setattr(api, "is_provider_available", lambda *a, **k: False)

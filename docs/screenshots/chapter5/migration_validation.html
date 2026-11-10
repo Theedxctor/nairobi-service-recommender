@@ -1,0 +1,13 @@
+<html><meta charset="utf-8"><style>body{font:20px Arial;margin:32px;color:#162c35}h1{font-size:28px}p{color:#52616a}pre{font:20px monospace;line-height:1.4;background:#f3f6f8;padding:20px}table{border-collapse:collapse;width:100%;font-size:18px;table-layout:fixed}td,th{padding:12px 8px;border-bottom:1px solid #cbd5dc;overflow-wrap:anywhere;text-align:left}th{background:#e5f2f1}</style><h1>Migration validation — dry run</h1><p>Actual script output; no database writes or live row-count verification.</p><pre>$ python3 database/migrate_csv_to_postgres.py --dry-run
+
+MIGRATION SUMMARY
+==================================================
+  nairobi_areas             -&gt; SUCCESS (30 rows)
+  clients                   -&gt; SUCCESS (500 rows)
+  service_providers         -&gt; SUCCESS (200 rows)
+  traffic_patterns          -&gt; SUCCESS (160 rows)
+  corridor_areas            -&gt; SUCCESS (544 rows)
+  provider_availability     -&gt; SUCCESS (1117 rows)
+  historical_bookings       -&gt; SUCCESS (3000 rows)
+==================================================
+</pre></html>

@@ -5,7 +5,7 @@
 **Institution:** Strathmore University — School of Computing and Engineering Sciences
 
 A context-aware web platform that recommends household service providers
-(electricians, plumbers, cleaners) in Nairobi based on a predicted **arrival
+(carpenters, cleaners, electricians, plumbers and technicians) in Nairobi based on a predicted **arrival
 reliability score** — combining traffic congestion, road quality, time of
 day, and provider history — rather than distance or rating alone.
 
@@ -27,9 +27,10 @@ tests/          Test suites for ml-service and frontend
 - [x] Synthetic dataset built (`data/raw/`)
 - [x] Model trained, tuned, and evaluated (`notebooks/training.ipynb`)
 - [x] ML pipeline + `/predict` and `/recommend` API (`ml-service/`)
-- [ ] Provider availability filtering
-- [ ] PostgreSQL/PostGIS integration
-- [ ] Next.js frontend
+- [x] Provider availability filtering
+- [x] PostgreSQL/PostGIS integration
+- [x] Next.js frontend
+- [x] Administrator provider verification, monitoring and model-retraining controls
 - [ ] Final documentation (Chapters 4–6)
 
 ## Quick start — ML service
@@ -68,7 +69,9 @@ It's safe to re-run — if `ADMIN_EMAIL` already has an account, it prints
 | Baseline B — Rating only | 0.1936 | 0.1585 |
 | **Proposed — XGBoost (tuned)** | **0.1417** | **0.1160** |
 
-5-fold CV RMSE: 0.1411 (± 0.0043). See `ml-service/results/` for full details.
+Shuffled full-dataset 5-fold CV RMSE: 0.1414 (± 0.0020). See
+`ml-service/results/model_performance_report_2026-10-27.md` for the separate
+training-partition validation and held-out test protocol.
 ## End-to-end tests
 
 Playwright tests in `tests/e2e/` drive the real stack (browser -> Next.js -> FastAPI -> Postgres).

@@ -1,5 +1,5 @@
 import type { ComponentType } from "react";
-import { BellIcon, BriefcaseIcon, CalendarIcon, ClipboardIcon, HomeIcon, ShieldCheckIcon } from "./icons";
+import { BellIcon, BoltIcon, BriefcaseIcon, CalendarIcon, ClipboardIcon, HomeIcon, ShieldCheckIcon, SparkleIcon } from "./icons";
 import type { Role } from "./use-auth-guard";
 
 export interface NavItem {
@@ -26,8 +26,9 @@ export const NAV_CONFIG: Record<Role, NavItem[]> = {
     { label: "Notifications", href: "/notifications", icon: BellIcon },
   ],
   admin: [
-    { label: "Home", href: "/admin/dashboard", icon: HomeIcon },
-    { label: "Provider Verification", href: "/admin/verify-providers", icon: ShieldCheckIcon },
+    { label: "System Performance", href: "/admin/dashboard", icon: BoltIcon },
+    { label: "Provider Identity", href: "/admin/verify-providers", icon: ShieldCheckIcon },
+    { label: "Model Retraining", href: "/admin/dashboard#model-retraining", icon: SparkleIcon },
     { label: "Notifications", href: "/notifications", icon: BellIcon },
   ],
 };

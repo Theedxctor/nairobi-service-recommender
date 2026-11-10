@@ -252,3 +252,21 @@ CREATE TABLE booking_reschedules (
 -- At most one open proposal per booking.
 CREATE UNIQUE INDEX idx_booking_reschedules_one_pending
     ON booking_reschedules (booking_id) WHERE status = 'pending';
+
+-- 13. provider_identity_reviews: the administrator's provider-verification
+-- decision and audit evidence. service_providers.is_verified stays in sync and
+-- remains the low-cost field used by recommendation filters.
+CREATE TABLE provider_identity_reviews (
+    provider_id VARCHAR(10) PRIMARY KEY REFERENCES service_providers(provider_id) ON DELETE CASCADE,
+    status VARCHAR(20) NOT NULL CHECK (status IN ('approved', 'rejected')),
+    reviewed_by VARCHAR(10) REFERENCES users(user_id),
+    note VARCHAR(500),
+    reviewed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_provider_identity_reviews_status ON provider_identity_reviews (status);
+
+INSERT INTO provider_identity_reviews (provider_id, status, reviewed_by, note)
+SELECT provider_id, 'approved', NULL, 'Imported as verified before review auditing was introduced.'
+FROM service_providers
+WHERE is_verified = true;

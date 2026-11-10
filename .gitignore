@@ -23,6 +23,11 @@ frontend/.env*.local
 Thumbs.db
 .vscode/
 .idea/
+.~lock.*#
+
+# --- Generated document backups ---
+docs/proposal/.ks4w-backups/
+docs/proposal/backups/
 
 # --- Env / secrets ---
 .env
