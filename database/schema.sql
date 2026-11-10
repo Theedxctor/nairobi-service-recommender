@@ -156,15 +156,21 @@ CREATE INDEX idx_historical_bookings_provider_area_id ON historical_bookings (pr
 CREATE TABLE users (
     user_id VARCHAR(10) PRIMARY KEY,
     email VARCHAR(100) NOT NULL UNIQUE,
-    password_hash VARCHAR(255) NOT NULL, -- bcrypt hash, never plaintext
+    password_hash VARCHAR(255), -- bcrypt hash, never plaintext; NULL for Google-only accounts
     role VARCHAR(20) NOT NULL CHECK (role IN ('client', 'provider', 'admin')),
     client_id VARCHAR(10) REFERENCES clients(client_id),
     provider_id VARCHAR(10) REFERENCES service_providers(provider_id),
-    created_at TIMESTAMP DEFAULT NOW()
+    created_at TIMESTAMP DEFAULT NOW(),
+    -- When the address was confirmed, by an emailed link or by Google (#95).
+    -- NULL = never checked, including accounts created before verification existed.
+    email_verified_at TIMESTAMPTZ,
+    google_sub VARCHAR(64), -- Google's stable account id, set once Google sign-in is used
+    CONSTRAINT chk_users_has_credential CHECK (password_hash IS NOT NULL OR google_sub IS NOT NULL)
 );
 
 CREATE INDEX idx_users_client_id ON users (client_id);
 CREATE INDEX idx_users_provider_id ON users (provider_id);
+CREATE UNIQUE INDEX idx_users_google_sub ON users (google_sub) WHERE google_sub IS NOT NULL;
 
 -- Enforces that only the FK matching the account's role is populated.
 ALTER TABLE users ADD CONSTRAINT chk_users_role_matches_fk CHECK (
@@ -252,3 +258,15 @@ CREATE TABLE booking_reschedules (
 -- At most one open proposal per booking.
 CREATE UNIQUE INDEX idx_booking_reschedules_one_pending
     ON booking_reschedules (booking_id) WHERE status = 'pending';
+
+-- 13. email_verification_tokens: single-use links emailed to confirm an
+-- address (#95). Only the SHA-256 of the token is stored, so a database leak
+-- does not expose usable links.
+CREATE TABLE email_verification_tokens (
+    token_hash CHAR(64) PRIMARY KEY,
+    user_id VARCHAR(10) NOT NULL REFERENCES users(user_id),
+    expires_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_email_verification_tokens_user ON email_verification_tokens (user_id);

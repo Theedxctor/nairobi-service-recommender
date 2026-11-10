@@ -53,7 +53,9 @@ def test_register_success(client, fake_db, monkeypatch):
     response = client.post("/auth/register", json=CLIENT_PAYLOAD)
 
     assert response.status_code == 200
-    assert response.json() == {"user_id": "U0001", "role": "client"}
+    # A password account starts unverified; no mail service is configured in tests.
+    assert response.json() == {"user_id": "U0001", "role": "client", "email_verified": False,
+                               "verification_email_sent": False}
 
     fake_db.assert_called_once()
     notified_user_id, message = fake_db.call_args.args[1], fake_db.call_args.args[2]
@@ -68,7 +70,9 @@ def test_register_provider_success(client, fake_db, monkeypatch):
     response = client.post("/auth/register", json=PROVIDER_PAYLOAD)
 
     assert response.status_code == 200
-    assert response.json() == {"user_id": "U0001", "role": "provider"}
+    # A password account starts unverified; no mail service is configured in tests.
+    assert response.json() == {"user_id": "U0001", "role": "provider", "email_verified": False,
+                               "verification_email_sent": False}
 
     fake_db.assert_called_once()
     message = fake_db.call_args.args[2]
@@ -125,6 +129,7 @@ def test_login_success(client, fake_db, monkeypatch):
         "role": "client",
         "name": "Wanjiku Kamau",
         "client_id": "C0001",
+        "email_verified": False,
     }
 
 

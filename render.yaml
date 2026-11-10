@@ -25,3 +25,13 @@ services:
         value: require         # read by libpq/psycopg2; Neon only accepts SSL
       - key: CORS_ORIGINS
         sync: false            # your Vercel URL, e.g. https://naiserve.vercel.app
+      # Google sign-in and email verification (#95). All optional: without them
+      # the Google button is hidden and verification links only reach the log.
+      - key: GOOGLE_CLIENT_ID
+        sync: false            # OAuth client ID from Google Cloud Console
+      - key: BREVO_API_KEY
+        sync: false
+      - key: EMAIL_FROM
+        sync: false            # sender address verified in Brevo
+      - key: FRONTEND_URL
+        sync: false            # the Vercel URL; verification links point here

@@ -15,11 +15,51 @@ let counter = 0;
 const uniqueEmail = (kind: string) =>
   `e2e+${kind}${Date.now()}${counter++}@naiserve.test`;
 
-async function registerAndLogin(body: Record<string, unknown>): Promise<Account> {
+// Email verification (#95). Tests have no mailbox, so they ask the API's
+// test-only endpoint for a token and then use the real /auth/verify-email.
+// That endpoint only exists when the API runs with the same E2E_VERIFY_SECRET.
+export const VERIFY_SECRET = process.env.E2E_VERIFY_SECRET ?? "local-e2e-secret";
+
+export async function verificationToken(userId: string): Promise<string> {
+  const api = await request.newContext();
+  try {
+    const res = await api.post(`${API}/auth/test/verification-token`, { data: { user_id: userId, secret: VERIFY_SECRET } });
+    expect(res.ok(), `Start the API with E2E_VERIFY_SECRET=${VERIFY_SECRET} (got ${res.status()})`).toBeTruthy();
+    return (await res.json()).token;
+  } finally {
+    await api.dispose();
+  }
+}
+
+export async function verifyEmail(userId: string) {
+  const token = await verificationToken(userId);
+  const api = await request.newContext();
+  try {
+    const res = await api.post(`${API}/auth/verify-email`, { data: { token } });
+    expect(res.ok(), await res.text()).toBeTruthy();
+  } finally {
+    await api.dispose();
+  }
+}
+
+/** Verify an account that was created through the UI. */
+export async function verifyEmailFor(email: string, password: string) {
+  const api = await request.newContext();
+  try {
+    const res = await api.post(`${API}/auth/login`, { data: { email, password } });
+    expect(res.ok(), await res.text()).toBeTruthy();
+    await verifyEmail((await res.json()).user_id);
+  } finally {
+    await api.dispose();
+  }
+}
+
+async function registerAndLogin(body: Record<string, unknown>, verified = true): Promise<Account> {
   const api = await request.newContext();
   try {
     const reg = await api.post(`${API}/auth/register`, { data: body });
     expect(reg.ok(), await reg.text()).toBeTruthy();
+    if (verified) await verifyEmail((await reg.json()).user_id);
     const login = await api.post(`${API}/auth/login`, {
       data: { email: body.email, password: body.password },
     });
@@ -37,7 +77,8 @@ async function registerAndLogin(body: Record<string, unknown>): Promise<Account>
   }
 }
 
-export const createClient = () =>
+/** Accounts are created with a verified email unless `verified` is false. */
+export const createClient = (verified = true) =>
   registerAndLogin({
     email: uniqueEmail("client"),
     password: PASSWORD,
@@ -45,9 +86,9 @@ export const createClient = () =>
     name: "E2E Client",
     phone: "0700000001",
     area_id: "A03",
-  });
+  }, verified);
 
-export async function createProvider(overrides: Record<string, unknown> = {}): Promise<Account> {
+export async function createProvider(overrides: Record<string, unknown> = {}, verified = true): Promise<Account> {
   const acct = await registerAndLogin({
     email: uniqueEmail("provider"),
     password: PASSWORD,
@@ -58,7 +99,7 @@ export async function createProvider(overrides: Record<string, unknown> = {}): P
     service_type: "plumber",
     hourly_rate_ksh: 900,
     ...overrides,
-  });
+  }, verified);
   const api = await request.newContext();
   const days = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"];
   const res = await api.put(`${API}/providers/${acct.providerId}/availability`, {

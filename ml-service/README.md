@@ -41,6 +41,56 @@ When nothing matches, the response is `200` with an empty list (`404` still
 means no provider offers the service or none is available). Each ranked
 provider also reports `is_verified`.
 
+## Google sign-in and email verification (#95)
+
+Apply `database/migrations/007_email_verification_google.sql` to existing
+databases **before** running this API version (login and profile queries
+select the new columns). It is safe to rerun. Existing accounts are left
+unverified and are asked to verify.
+
+**Settings** (environment variables, all optional):
+
+| Variable | Purpose |
+|---|---|
+| `GOOGLE_CLIENT_ID` | OAuth client ID from Google Cloud Console. Unset = Google sign-in is off and the button is not shown. |
+| `BREVO_API_KEY` | Brevo API key for sending verification emails. |
+| `EMAIL_FROM` | Sender address, verified in Brevo. Emails are only sent when this and the key are both set. |
+| `EMAIL_FROM_NAME` | Sender name, default `NaiServe`. |
+| `FRONTEND_URL` | Where the emailed link points, e.g. `https://nairobi-service-recommender.vercel.app`. Default `http://localhost:3000`. |
+| `E2E_VERIFY_SECRET` | Enables the test-only endpoint below. Leave unset unless running the browser tests against this server. |
+
+Without the Brevo settings, verification links are written to the server log
+instead of being emailed, which is enough for local development.
+
+**Sign in with Google.** `GET /auth/config` tells the frontend the client ID.
+`POST /auth/google {"credential": "<Google ID token>"}` checks the token with
+Google's library (signature, audience = our client ID, expiry) and returns
+either the signed-in account, or `{"registered": false, "email", "name"}` for
+someone new. They then complete `POST /auth/register` with
+`google_credential` in place of `email` and `password`; the account is created
+with Google's address, no password, and a verified email. If a password
+account already exists for that address it is linked; if that account had
+never verified its email, its password is removed, since whoever set it never
+proved they own the address.
+
+**Email verification.** `POST /auth/register` with a password creates an
+unverified account and emails a link to `FRONTEND_URL/verify-email?token=...`.
+The token is random, single-use, expires after 24 hours, and only its SHA-256
+is stored. `POST /auth/verify-email {"token"}` confirms it (`400` unknown or
+used, `410` expired). `POST /auth/resend-verification {"user_id"}` replaces
+the link, at most once a minute (`429`). Login, `/auth/google` and `/profile`
+report `email_verified`.
+
+**What an unverified account cannot do.** A client cannot create a booking
+(`403`). A provider is left out of `/recommend`, cannot be booked (`409`) and
+cannot accept a job (`403`); declining and cancelling still work. Dataset
+providers and clients with no login account are not affected, and neither are
+admins.
+
+**Tests.** `POST /auth/test/verification-token {"user_id", "secret"}` issues a
+token without a mailbox so the browser tests can use the real verification
+endpoint. It returns `404` unless `E2E_VERIFY_SECRET` is set and matches.
+
 ## Rescheduling (#83)
 
 Apply `database/migrations/006_booking_reschedules.sql` to existing databases

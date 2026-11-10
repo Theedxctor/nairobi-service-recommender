@@ -1,5 +1,5 @@
 import { test, expect, request } from "@playwright/test";
-import { API, JOB_DATE, PASSWORD, login, waitForRequestForm } from "./fixtures";
+import { API, JOB_DATE, PASSWORD, login, verifyEmailFor, waitForRequestForm } from "./fixtures";
 
 // #72/#73: exact client location, with emulated browser geolocation.
 const KILIMANI = { latitude: -1.29, longitude: 36.785, accuracy: 25 };
@@ -25,6 +25,7 @@ test("client signs up with exact location, requests from home, booking stores th
   await expect(page.getByTestId("location-area")).toHaveText("Near Kilimani");
   await page.getByRole("button", { name: "Create Account" }).click();
   await page.waitForURL("**/login");
+  await verifyEmailFor(email, PASSWORD); // booking needs a verified email (#95)
 
   // Profile shows the saved exact point.
   await login(page, email, PASSWORD);
