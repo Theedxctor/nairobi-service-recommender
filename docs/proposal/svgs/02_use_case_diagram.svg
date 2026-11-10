@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:ev="http://www.w3.org/2001/xml-events" xmlns:xlink="http://www.w3.org/1999/xlink" baseProfile="full" height="1510px" version="1.1" viewBox="0 0 2100 1510" width="2100px">
+  <defs/>
+  <rect fill="#fff" height="1510" width="2100" x="0" y="0"/>
+  <text fill="#152B52" font-family="Arial, sans-serif" font-size="29" font-weight="bold" text-anchor="middle" x="1050.0" y="49">NaiServe — Use Case Diagram</text>
+  <text fill="#53647A" font-family="Arial, sans-serif" font-size="15" text-anchor="middle" x="1050.0" y="77">System boundary, actors, interactions, and request-to-results dependency</text>
+  <rect fill="#F5F9FF" height="1320" rx="16" ry="16" stroke="#2563A6" stroke-width="3" width="1440" x="340" y="113"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="27" font-weight="bold" text-anchor="middle" x="1060" y="161">NaiServe</text>
+  <circle cx="145" cy="350" fill="none" r="18" stroke="#2563A6" stroke-width="4"/>
+  <line stroke="#2563A6" stroke-width="4" x1="145" x2="145" y1="368" y2="441"/>
+  <line stroke="#2563A6" stroke-width="4" x1="102" x2="188" y1="390" y2="390"/>
+  <line stroke="#2563A6" stroke-width="4" x1="145" x2="109" y1="441" y2="492"/>
+  <line stroke="#2563A6" stroke-width="4" x1="145" x2="181" y1="441" y2="492"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="bold" text-anchor="middle" x="145" y="529">Client</text>
+  <circle cx="1940" cy="1045" fill="none" r="18" stroke="#287047" stroke-width="4"/>
+  <line stroke="#287047" stroke-width="4" x1="1940" x2="1940" y1="1063" y2="1136"/>
+  <line stroke="#287047" stroke-width="4" x1="1897" x2="1983" y1="1085" y2="1085"/>
+  <line stroke="#287047" stroke-width="4" x1="1940" x2="1904" y1="1136" y2="1187"/>
+  <line stroke="#287047" stroke-width="4" x1="1940" x2="1976" y1="1136" y2="1187"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="bold" text-anchor="middle" x="1940" y="1224">Service Provider</text>
+  <circle cx="1940" cy="320" fill="none" r="18" stroke="#7143A4" stroke-width="4"/>
+  <line stroke="#7143A4" stroke-width="4" x1="1940" x2="1940" y1="338" y2="411"/>
+  <line stroke="#7143A4" stroke-width="4" x1="1897" x2="1983" y1="360" y2="360"/>
+  <line stroke="#7143A4" stroke-width="4" x1="1940" x2="1904" y1="411" y2="462"/>
+  <line stroke="#7143A4" stroke-width="4" x1="1940" x2="1976" y1="411" y2="462"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="22" font-weight="bold" text-anchor="middle" x="1940" y="499">Administrator</text>
+  <ellipse cx="785.0" cy="221.0" fill="#E2EFFD" rx="305.0" ry="35.0" stroke="#2563A6" stroke-width="2"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="normal" text-anchor="middle" x="785.0" y="226.0">Register / Log in</text>
+  <line stroke="#79879C" stroke-width="1.8" x1="198" x2="476" y1="415" y2="221"/>
+  <ellipse cx="785.0" cy="334.0" fill="#E2EFFD" rx="305.0" ry="35.0" stroke="#2563A6" stroke-width="2"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="normal" text-anchor="middle" x="785.0" y="329.0">Request a Service</text>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="normal" text-anchor="middle" x="785.0" y="349.0">(service type, area/pin, date, time slot)</text>
+  <line stroke="#79879C" stroke-width="1.8" x1="198" x2="476" y1="415" y2="334"/>
+  <ellipse cx="785.0" cy="447.0" fill="#E2EFFD" rx="305.0" ry="35.0" stroke="#2563A6" stroke-width="2"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="normal" text-anchor="middle" x="785.0" y="442.0">View Ranked Providers</text>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="normal" text-anchor="middle" x="785.0" y="462.0">(reliability score and explanation)</text>
+  <line stroke="#79879C" stroke-width="1.8" x1="198" x2="476" y1="415" y2="447"/>
+  <ellipse cx="785.0" cy="560.0" fill="#E2EFFD" rx="305.0" ry="35.0" stroke="#2563A6" stroke-width="2"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="normal" text-anchor="middle" x="785.0" y="555.0">Filter Results</text>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="normal" text-anchor="middle" x="785.0" y="575.0">(max rate, min rating, verified only)</text>
+  <line stroke="#79879C" stroke-width="1.8" x1="198" x2="476" y1="415" y2="560"/>
+  <ellipse cx="785.0" cy="673.0" fill="#E2EFFD" rx="305.0" ry="35.0" stroke="#2563A6" stroke-width="2"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="normal" text-anchor="middle" x="785.0" y="668.0">View New Providers</text>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="normal" text-anchor="middle" x="785.0" y="688.0">(no job history)</text>
+  <line stroke="#79879C" stroke-width="1.8" x1="198" x2="476" y1="415" y2="673"/>
+  <ellipse cx="785.0" cy="786.0" fill="#E2EFFD" rx="305.0" ry="35.0" stroke="#2563A6" stroke-width="2"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="normal" text-anchor="middle" x="785.0" y="791.0">Book a Provider</text>
+  <line stroke="#79879C" stroke-width="1.8" x1="198" x2="476" y1="415" y2="786"/>
+  <ellipse cx="785.0" cy="899.0" fill="#E2EFFD" rx="305.0" ry="35.0" stroke="#2563A6" stroke-width="2"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="normal" text-anchor="middle" x="785.0" y="894.0">Cancel Booking</text>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="normal" text-anchor="middle" x="785.0" y="914.0">(with reason)</text>
+  <line stroke="#79879C" stroke-width="1.8" x1="198" x2="476" y1="415" y2="899"/>
+  <ellipse cx="785.0" cy="1012.0" fill="#E2EFFD" rx="305.0" ry="35.0" stroke="#2563A6" stroke-width="2"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="normal" text-anchor="middle" x="785.0" y="1017.0">Propose Reschedule</text>
+  <line stroke="#79879C" stroke-width="1.8" x1="198" x2="476" y1="415" y2="1012"/>
+  <ellipse cx="785.0" cy="1125.0" fill="#E2EFFD" rx="305.0" ry="35.0" stroke="#2563A6" stroke-width="2"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="normal" text-anchor="middle" x="785.0" y="1120.0">Review Completed Booking</text>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="16" font-weight="normal" text-anchor="middle" x="785.0" y="1140.0">(1–5 rating, optional comment)</text>
+  <line stroke="#79879C" stroke-width="1.8" x1="198" x2="476" y1="415" y2="1125"/>
+  <ellipse cx="785.0" cy="1238.0" fill="#E2EFFD" rx="305.0" ry="35.0" stroke="#2563A6" stroke-width="2"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="18" font-weight="normal" text-anchor="middle" x="785.0" y="1243.0">View Notifications / View Profile</text>
+  <line stroke="#79879C" stroke-width="1.8" x1="198" x2="476" y1="415" y2="1238"/>
+  <ellipse cx="1422.5" cy="783.0" fill="#E5F5E7" rx="302.5" ry="35.0" stroke="#287047" stroke-width="2"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="normal" text-anchor="middle" x="1422.5" y="788.0">Register / Log in</text>
+  <line stroke="#84988C" stroke-width="1.7" x1="1888" x2="1728" y1="1110" y2="783"/>
+  <ellipse cx="1422.5" cy="893.0" fill="#E5F5E7" rx="302.5" ry="35.0" stroke="#287047" stroke-width="2"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="normal" text-anchor="middle" x="1422.5" y="888.0">Set Availability</text>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="normal" text-anchor="middle" x="1422.5" y="908.0">(weekdays and time slots)</text>
+  <line stroke="#84988C" stroke-width="1.7" x1="1888" x2="1728" y1="1110" y2="893"/>
+  <ellipse cx="1422.5" cy="1003.0" fill="#E5F5E7" rx="302.5" ry="35.0" stroke="#287047" stroke-width="2"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="normal" text-anchor="middle" x="1422.5" y="998.0">Respond to Booking</text>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="normal" text-anchor="middle" x="1422.5" y="1018.0">(accept or decline)</text>
+  <line stroke="#84988C" stroke-width="1.7" x1="1888" x2="1728" y1="1110" y2="1003"/>
+  <ellipse cx="1422.5" cy="1113.0" fill="#E5F5E7" rx="302.5" ry="35.0" stroke="#287047" stroke-width="2"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="normal" text-anchor="middle" x="1422.5" y="1118.0">Complete Booking</text>
+  <line stroke="#84988C" stroke-width="1.7" x1="1888" x2="1728" y1="1110" y2="1113"/>
+  <ellipse cx="1422.5" cy="1223.0" fill="#E5F5E7" rx="302.5" ry="35.0" stroke="#287047" stroke-width="2"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="normal" text-anchor="middle" x="1422.5" y="1228.0">Propose or Respond to Reschedule</text>
+  <line stroke="#84988C" stroke-width="1.7" x1="1888" x2="1728" y1="1110" y2="1223"/>
+  <ellipse cx="1422.5" cy="1333.0" fill="#E5F5E7" rx="302.5" ry="35.0" stroke="#287047" stroke-width="2"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="normal" text-anchor="middle" x="1422.5" y="1338.0">View Notifications / View Profile</text>
+  <line stroke="#84988C" stroke-width="1.7" x1="1888" x2="1728" y1="1110" y2="1333"/>
+  <ellipse cx="1438.0" cy="257.5" fill="#F1E8FA" rx="275.0" ry="38.5" stroke="#7143A4" stroke-width="2"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="normal" text-anchor="middle" x="1438.0" y="262.5">Log in</text>
+  <line stroke="#927FA5" stroke-width="2" x1="1888" x2="1717" y1="385" y2="257"/>
+  <ellipse cx="1438.0" cy="380.5" fill="#F1E8FA" rx="275.0" ry="38.5" stroke="#7143A4" stroke-width="2"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="normal" text-anchor="middle" x="1438.0" y="375.5">Verify Provider Profile and Contact Details</text>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="normal" text-anchor="middle" x="1438.0" y="395.5">(approve / reject with note)</text>
+  <line stroke="#927FA5" stroke-width="2" x1="1888" x2="1717" y1="385" y2="380"/>
+  <ellipse cx="1438.0" cy="503.5" fill="#F1E8FA" rx="275.0" ry="38.5" stroke="#7143A4" stroke-width="2"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="normal" text-anchor="middle" x="1438.0" y="498.5">Monitor System Performance</text>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="normal" text-anchor="middle" x="1438.0" y="518.5">(counts and model metrics)</text>
+  <line stroke="#927FA5" stroke-width="2" x1="1888" x2="1717" y1="385" y2="503"/>
+  <ellipse cx="1438.0" cy="626.5" fill="#F1E8FA" rx="275.0" ry="38.5" stroke="#7143A4" stroke-width="2"/>
+  <text fill="#152B52" font-family="Arial, Helvetica, sans-serif" font-size="19" font-weight="normal" text-anchor="middle" x="1438.0" y="631.5">Trigger Model Retraining</text>
+  <line stroke="#927FA5" stroke-width="2" x1="1888" x2="1717" y1="385" y2="626"/>
+  <line stroke="#2563A6" stroke-dasharray="8,7" stroke-width="1.8" x1="1094" x2="1115" y1="335" y2="335"/>
+  <line stroke="#2563A6" stroke-dasharray="8,7" stroke-width="1.8" x1="1115" x2="1115" y1="335" y2="440"/>
+  <line stroke="#2563A6" stroke-dasharray="8,7" stroke-width="1.8" x1="1115" x2="1094" y1="440" y2="440"/>
+  <polygon fill="#2563A6" points="1094,440 1104.698819458344,434.56536457545116 1104.698819458344,445.4346354245488"/>
+  <text fill="#2563A6" font-family="Arial, Helvetica, sans-serif" font-size="17" font-weight="normal" x="1127" y="397">«include»</text>
+</svg>

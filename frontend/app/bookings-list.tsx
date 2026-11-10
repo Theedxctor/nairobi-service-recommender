@@ -10,6 +10,9 @@ import {
   capitalize,
   dayNameOf,
   formatJobDate,
+  isPastTimeSlot,
+  nairobiDateTime,
+  parseJobDate,
   toIsoDate,
   whenLabel,
 } from "@/lib/recommendation";
@@ -269,6 +272,7 @@ export function BookingCard({
   const [moveLimits, setMoveLimits] = useState<{ min: string; max: string } | null>(null);
   const [newDate, setNewDate] = useState("");
   const [newSlot, setNewSlot] = useState(booking.time_slot);
+  const [clock, setClock] = useState<Date | null>(null);
   const actions = onUpdated ? ACTIONS[role][booking.status] ?? [] : [];
   const canReschedule = Boolean(onUpdated) && isActive(booking) && !booking.reschedule;
   // Breaking a confirmed booking needs a reason; the API enforces this too.
@@ -277,6 +281,12 @@ export function BookingCard({
     role === "client"
       ? booking.provider_name ?? booking.provider_id
       : booking.client_name ?? booking.client_id;
+
+  useEffect(() => {
+    if (!moveLimits) return;
+    const timer = window.setInterval(() => setClock(new Date()), 30_000);
+    return () => window.clearInterval(timer);
+  }, [moveLimits]);
 
   const send = async (path: "status" | "reschedule", method: "PATCH" | "POST", body: Record<string, unknown>) => {
     setBusy(true);
@@ -309,13 +319,17 @@ export function BookingCard({
 
   const openReschedule = () => {
     const now = new Date();
-    const last = new Date(now.getFullYear(), now.getMonth(), now.getDate() + JOB_DATE_MAX_DAYS_AHEAD);
-    setMoveLimits({ min: toIsoDate(now), max: toIsoDate(last) });
-    setNewDate(booking.job_date && booking.job_date >= toIsoDate(now) ? booking.job_date : toIsoDate(now));
+    const todayInNairobi = nairobiDateTime(now).date;
+    const first = parseJobDate(todayInNairobi) ?? now;
+    const last = new Date(first.getFullYear(), first.getMonth(), first.getDate() + JOB_DATE_MAX_DAYS_AHEAD);
+    setMoveLimits({ min: todayInNairobi, max: toIsoDate(last) });
+    setNewDate(booking.job_date && booking.job_date >= todayInNairobi ? booking.job_date : todayInNairobi);
     setNewSlot(booking.time_slot);
+    setClock(now);
     setError(null);
   };
   const unchanged = newDate === booking.job_date && newSlot === booking.time_slot;
+  const selectedMoveSlotHasEnded = clock ? isPastTimeSlot(newDate, newSlot, clock) : false;
   const dateId = `move-date-${booking.booking_id}`;
   const slotId = `move-slot-${booking.booking_id}`;
 
@@ -381,6 +395,10 @@ export function BookingCard({
         <form
           onSubmit={(e) => {
             e.preventDefault();
+            if (clock && isPastTimeSlot(newDate, newSlot, clock)) {
+              setError("That time slot has already ended today. Choose a later slot or another date.");
+              return;
+            }
             send("reschedule", "POST", { job_date: newDate, time_slot: newSlot });
           }}
           className="mt-4 space-y-3 border-t border-stone-100 pt-4"
@@ -415,8 +433,12 @@ export function BookingCard({
                 className="mt-1 block rounded-md border border-stone-300 bg-white px-3 py-2 text-sm focus:ring-2 focus:ring-teal-600"
               >
                 {Object.entries(TIME_SLOT_LABELS).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
+                  <option
+                    key={value}
+                    value={value}
+                    disabled={clock ? isPastTimeSlot(newDate, value, clock) : false}
+                  >
+                    {label}{clock && isPastTimeSlot(newDate, value, clock) ? " — ended" : ""}
                   </option>
                 ))}
               </select>
@@ -425,14 +447,16 @@ export function BookingCard({
           <p className="text-xs text-stone-500" aria-live="polite">
             {unchanged
               ? "Choose a different date or time slot from the current one."
-              : dayNameOf(newDate)
+              : selectedMoveSlotHasEnded
+                ? "That time slot has already ended today. Choose a later slot or another date."
+                : dayNameOf(newDate)
                 ? `${dayNameOf(newDate)}, ${formatJobDate(newDate)}`
                 : `Choose a date from today up to ${JOB_DATE_MAX_DAYS_AHEAD} days ahead.`}
           </p>
           <div className="flex gap-2">
             <button
               type="submit"
-              disabled={busy || unchanged || !dayNameOf(newDate) || newDate < moveLimits.min || newDate > moveLimits.max}
+              disabled={busy || unchanged || selectedMoveSlotHasEnded || !dayNameOf(newDate) || newDate < moveLimits.min || newDate > moveLimits.max}
               className="rounded-md bg-teal-700 px-3 py-1.5 text-sm font-semibold text-white hover:bg-teal-800 disabled:opacity-60"
             >
               {busy ? "Sending..." : "Send request"}

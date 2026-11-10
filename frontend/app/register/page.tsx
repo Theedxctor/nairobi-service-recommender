@@ -167,7 +167,7 @@ export default function RegisterPage() {
             Reliable help, matched to Nairobi&apos;s real conditions.
           </p>
           <p className="mt-4 max-w-sm text-teal-100/80">
-            Every recommendation accounts for live traffic and a provider&apos;s actual arrival
+            Every recommendation accounts for typical traffic patterns and a provider&apos;s actual arrival
             history, not just proximity.
           </p>
         </div>

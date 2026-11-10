@@ -4,19 +4,26 @@ Reproduces the exact tuned model from the Kaggle notebook's GridSearchCV
 (best_params_: learning_rate=0.05, max_depth=3, min_child_weight=3),
 saved as a single deployable sklearn Pipeline.
 """
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+
 import pandas as pd
 import joblib
 from sklearn.compose import ColumnTransformer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import OneHotEncoder
 from sklearn.model_selection import train_test_split, KFold, cross_val_score
-from sklearn.metrics import mean_squared_error, mean_absolute_error
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from xgboost import XGBRegressor
 import numpy as np
 
+BASE_DIR = Path(__file__).resolve().parent
 TARGET = "arrival_reliability_score"
-DATA_PATH = "../data/raw/historical_bookings.csv"
-MODEL_OUT = "models/xgboost_arrival_reliability_pipeline.pkl"
+DATA_PATH = BASE_DIR.parent / "data" / "raw" / "historical_bookings.csv"
+MODEL_OUT = BASE_DIR / "models" / "xgboost_arrival_reliability_pipeline.pkl"
+METRICS_OUT = BASE_DIR / "results" / "latest_model_metrics.json"
 
 FEATURES = [
     "distance_km",
@@ -46,7 +53,12 @@ def build_pipeline():
     return Pipeline(steps=[("preprocessor", preprocessor), ("model", model)])
 
 
-def main():
+def train_and_evaluate(save=True):
+    """Train the fixed pipeline, return it with reproducible evaluation data.
+
+    Model and metrics files are replaced atomically so live API workers never
+    observe a partially written artifact.
+    """
     df = pd.read_csv(DATA_PATH)
     X, y = df[FEATURES], df[TARGET]
 
@@ -54,6 +66,7 @@ def main():
 
     pipe = build_pipeline()
     pipe.fit(X_train, y_train)
+    train_pred = pipe.predict(X_train)
     pred = pipe.predict(X_test)
 
     rmse = np.sqrt(mean_squared_error(y_test, pred))
@@ -62,12 +75,53 @@ def main():
     kf = KFold(n_splits=5, shuffle=True, random_state=42)
     cv_rmse = -cross_val_score(pipe, X, y, cv=kf, scoring="neg_root_mean_squared_error")
 
-    print(f"Tuned model -- features: {FEATURES}")
-    print(f"Test RMSE: {rmse:.4f}   Test MAE: {mae:.4f}")
-    print(f"5-fold CV RMSE: {cv_rmse.mean():.4f} (+/- {cv_rmse.std():.4f})")
+    metrics = {
+        "trained_at": datetime.now(timezone.utc).isoformat(),
+        "dataset": "synthetic",
+        "records": int(len(df)),
+        "train_records": int(len(X_train)),
+        "test_records": int(len(X_test)),
+        "features": FEATURES,
+        "train": {
+            "rmse": float(np.sqrt(mean_squared_error(y_train, train_pred))),
+            "mae": float(mean_absolute_error(y_train, train_pred)),
+            "r2": float(r2_score(y_train, train_pred)),
+        },
+        "test": {
+            "rmse": float(rmse),
+            "mae": float(mae),
+            "r2": float(r2_score(y_test, pred)),
+        },
+        "cross_validation": {
+            "folds": 5,
+            "scope": "all synthetic records, shuffled KFold",
+            "rmse_mean": float(cv_rmse.mean()),
+            "rmse_std": float(cv_rmse.std()),
+        },
+    }
 
-    joblib.dump(pipe, MODEL_OUT)
+    if save:
+        MODEL_OUT.parent.mkdir(parents=True, exist_ok=True)
+        METRICS_OUT.parent.mkdir(parents=True, exist_ok=True)
+        model_tmp = MODEL_OUT.with_suffix(".tmp")
+        metrics_tmp = METRICS_OUT.with_suffix(".tmp")
+        joblib.dump(pipe, model_tmp)
+        metrics_tmp.write_text(json.dumps(metrics, indent=2) + "\n", encoding="utf-8")
+        os.replace(model_tmp, MODEL_OUT)
+        os.replace(metrics_tmp, METRICS_OUT)
+
+    return pipe, metrics
+
+
+def main():
+    _, metrics = train_and_evaluate(save=True)
+    print(f"Tuned model -- features: {FEATURES}")
+    print(f"Test RMSE: {metrics['test']['rmse']:.4f}   Test MAE: {metrics['test']['mae']:.4f}")
+    cv = metrics["cross_validation"]
+    print(f"5-fold CV RMSE: {cv['rmse_mean']:.4f} (+/- {cv['rmse_std']:.4f})")
+
     print(f"\nSaved -> {MODEL_OUT}")
+    print(f"Metrics -> {METRICS_OUT}")
 
 
 if __name__ == "__main__":

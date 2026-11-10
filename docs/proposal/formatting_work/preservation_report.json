@@ -1,0 +1,13 @@
+{
+  "original_sha256": "cea0f101fa38a05f2331b417f9b643788613f2223f2d500e1cbb9a4f0070f8e6",
+  "media_payloads_identical": true,
+  "images": 30,
+  "tables": 21,
+  "table_text_differences": [
+    17,
+    19
+  ],
+  "bibliography_preserved": true,
+  "unmatched_original_paragraphs": [],
+  "page_reference_fields_added": 156
+}

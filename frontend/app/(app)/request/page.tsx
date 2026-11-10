@@ -16,6 +16,9 @@ import {
   dayNameOf,
   dayTypeOf,
   formatJobDate,
+  isPastTimeSlot,
+  nairobiDateTime,
+  parseJobDate,
   saveRecommendation,
   toIsoDate,
 } from "@/lib/recommendation";
@@ -39,6 +42,7 @@ export default function RequestPage() {
   const [lastDay, setLastDay] = useState("");
   const dayType = dayTypeOf(jobDate);
   const [timeSlot, setTimeSlot] = useState("morning_rush");
+  const [clock, setClock] = useState<Date | null>(null);
   const [optionsState, setOptionsState] = useState<"loading" | "ready" | "failed">("loading");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -65,11 +69,18 @@ export default function RequestPage() {
 
   useEffect(() => {
     const now = new Date();
-    const last = new Date(now.getFullYear(), now.getMonth(), now.getDate() + JOB_DATE_MAX_DAYS_AHEAD);
-    setToday(toIsoDate(now));
+    const todayInNairobi = nairobiDateTime(now).date;
+    const first = parseJobDate(todayInNairobi) ?? now;
+    const last = new Date(first.getFullYear(), first.getMonth(), first.getDate() + JOB_DATE_MAX_DAYS_AHEAD);
+    setToday(todayInNairobi);
     setLastDay(toIsoDate(last));
-    setJobDate(toIsoDate(now));
+    setJobDate(todayInNairobi);
+    setClock(now);
+    const timer = window.setInterval(() => setClock(new Date()), 30_000);
+    return () => window.clearInterval(timer);
   }, []);
+
+  const selectedSlotHasEnded = clock ? isPastTimeSlot(jobDate, timeSlot, clock) : false;
 
   // Saved home location from the profile, if the client shared one.
   useEffect(() => {
@@ -91,6 +102,10 @@ export default function RequestPage() {
     setError(null);
     if (!dayType || jobDate < today || jobDate > lastDay) {
       setError(`Choose a date from today up to ${JOB_DATE_MAX_DAYS_AHEAD} days ahead.`);
+      return;
+    }
+    if (clock && isPastTimeSlot(jobDate, timeSlot, clock)) {
+      setError("That time slot has already ended today. Choose a later slot or another date.");
       return;
     }
     setSubmitting(true);
@@ -343,11 +358,20 @@ export default function RequestPage() {
               className="w-full px-3.5 py-2.5 rounded-lg border border-stone-300 bg-white text-stone-800 shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 text-sm"
             >
               {Object.entries(TIME_SLOT_LABELS).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
+                <option
+                  key={value}
+                  value={value}
+                  disabled={clock ? isPastTimeSlot(jobDate, value, clock) : false}
+                >
+                  {label}{clock && isPastTimeSlot(jobDate, value, clock) ? " — ended" : ""}
                 </option>
               ))}
             </select>
+            {selectedSlotHasEnded && (
+              <p className="mt-1 text-xs text-red-600" role="alert">
+                This time slot has already ended today. Choose a later slot or another date.
+              </p>
+            )}
           </div>
 
           {error && (
@@ -360,7 +384,7 @@ export default function RequestPage() {
           <div className="pt-2">
             <button
               type="submit"
-              disabled={submitting || optionsState !== "ready"}
+              disabled={submitting || optionsState !== "ready" || selectedSlotHasEnded}
               className="w-full inline-flex items-center justify-center py-3 px-4 rounded-lg text-white font-medium bg-teal-700 hover:bg-teal-800 disabled:opacity-60 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-teal-500 shadow-sm transition-colors"
             >
               {optionsState === "loading"

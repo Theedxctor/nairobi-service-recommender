@@ -47,7 +47,7 @@ export default function Home() {
           </h1>
           <p className="mt-6 text-lg leading-relaxed text-stone-600 md:text-xl">
             We rank plumbers, electricians, cleaners, and technicians by how likely they are to
-            actually show up on time — accounting for Nairobi&apos;s real traffic and congestion
+            actually show up on time — accounting for Nairobi&apos;s typical traffic and congestion
             patterns, not just distance.
           </p>
           <div className="mt-10 flex flex-col items-center justify-center gap-4 sm:flex-row">

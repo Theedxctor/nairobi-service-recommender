@@ -1,0 +1,36 @@
+Found CSV data directory at: /home/theedxctor/Desktop/nairobi-service-recommender/data/raw
+Running in DRY-RUN mode. No database operations will be executed.
+
+[1/7] nairobi_areas: Preparing 30 records...
+      [DRY RUN] Would insert 30 rows into nairobi_areas.
+      [DRY RUN] Sample geom conversion: ST_SetSRID(ST_MakePoint(36.8172, -1.2833), 4326)
+
+[2/7] clients: Preparing 500 records...
+      [DRY RUN] Would insert 500 rows into clients.
+
+[3/7] service_providers: Preparing 200 records...
+      [DRY RUN] Would insert 200 rows into service_providers.
+
+[4/7] traffic_patterns: Preparing 160 records...
+      [DRY RUN] Would insert 160 rows into traffic_patterns.
+
+[5/7] corridor_areas: Prepared 544 junction mappings from traffic_patterns.served_areas...
+      [DRY RUN] Would insert 544 rows into corridor_areas.
+
+[6/7] provider_availability: Preparing 1117 records...
+      [DRY RUN] Would insert 1117 rows into provider_availability.
+
+[7/7] historical_bookings: Preparing 3000 records...
+      [DRY RUN] Would insert 3000 rows into historical_bookings.
+
+==================================================
+MIGRATION SUMMARY
+==================================================
+  nairobi_areas             -> SUCCESS (30 rows)
+  clients                   -> SUCCESS (500 rows)
+  service_providers         -> SUCCESS (200 rows)
+  traffic_patterns          -> SUCCESS (160 rows)
+  corridor_areas            -> SUCCESS (544 rows)
+  provider_availability     -> SUCCESS (1117 rows)
+  historical_bookings       -> SUCCESS (3000 rows)
+==================================================

@@ -1,0 +1,30 @@
+{
+  "trained_at": "2026-10-28T09:23:14.846108+00:00",
+  "dataset": "synthetic",
+  "records": 3000,
+  "train_records": 2400,
+  "test_records": 600,
+  "features": [
+    "distance_km",
+    "congestion_multiplier",
+    "time_slot",
+    "provider_area_road_quality",
+    "provider_completion_rate"
+  ],
+  "train": {
+    "rmse": 0.13156910744828806,
+    "mae": 0.10779240930080415,
+    "r2": 0.5056283120312678
+  },
+  "test": {
+    "rmse": 0.1416863961995932,
+    "mae": 0.11598403719409307,
+    "r2": 0.471743790216794
+  },
+  "cross_validation": {
+    "folds": 5,
+    "scope": "all synthetic records, shuffled KFold",
+    "rmse_mean": 0.14135646743988195,
+    "rmse_std": 0.002012925928439302
+  }
+}
