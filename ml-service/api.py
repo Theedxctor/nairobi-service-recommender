@@ -30,7 +30,7 @@ import re
 import threading
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional
@@ -446,6 +446,15 @@ class AdminProviderResponse(BaseModel):
     review_note: Optional[str] = None
     reviewed_at: Optional[datetime] = None
     reviewed_by: Optional[str] = None
+    registered_at: Optional[datetime] = None
+
+
+class AdminRegistrationResponse(BaseModel):
+    # Email is deliberately left out: admin endpoints are not yet protected by
+    # server-side sessions (issue #84), so this list must not expose contact data.
+    user_id: str
+    role: str
+    name: Optional[str] = None
     registered_at: Optional[datetime] = None
 
 
@@ -1084,6 +1093,37 @@ def admin_providers(admin_user_id: str, status: Optional[str] = None):
         return _fetch_admin_providers(cursor, status=status)
     finally:
         conn.close()
+
+
+@app.get("/admin/registrations", response_model=list[AdminRegistrationResponse])
+def admin_registrations(admin_user_id: str, limit: int = Query(50, ge=1, le=200)):
+    """Registration history: the most recent accounts, newest first.
+
+    Reads users.created_at, which the database sets on insert. This is not a
+    full audit log: logins, failed attempts, changes and deletions are not recorded.
+    """
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        _require_admin(cursor, admin_user_id)
+        cursor.execute(
+            """
+            SELECT u.user_id, u.role, COALESCE(c.name, sp.name), u.created_at
+            FROM users u
+            LEFT JOIN clients c ON c.client_id = u.client_id
+            LEFT JOIN service_providers sp ON sp.provider_id = u.provider_id
+            ORDER BY u.created_at DESC NULLS LAST, u.user_id DESC
+            LIMIT %s
+            """,
+            (limit,),
+        )
+        rows = cursor.fetchall()
+    finally:
+        conn.close()
+    return [
+        {"user_id": r[0], "role": r[1], "name": r[2], "registered_at": r[3]}
+        for r in rows
+    ]
 
 
 @app.patch("/admin/providers/{provider_id}/verification", response_model=AdminProviderResponse)

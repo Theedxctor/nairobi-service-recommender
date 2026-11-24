@@ -48,6 +48,13 @@ interface AdminOverview {
   };
 }
 
+interface Registration {
+  user_id: string;
+  role: "client" | "provider" | "admin";
+  name: string | null;
+  registered_at: string | null;
+}
+
 const number = (value: number | undefined, digits = 4) =>
   value === undefined ? "—" : value.toFixed(digits);
 
@@ -60,17 +67,23 @@ export default function AdminDashboardPage() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [triggering, setTriggering] = useState(false);
+  const [registrations, setRegistrations] = useState<Registration[] | null>(null);
 
   const loadOverview = useCallback(async () => {
     if (!auth?.user_id) return;
+    const admin = encodeURIComponent(auth.user_id);
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/admin/overview?admin_user_id=${encodeURIComponent(auth.user_id)}`,
-        { cache: "no-store" },
-      );
-      const data = await response.json().catch(() => null);
-      if (!response.ok) throw new Error(apiErrorMessage(data));
+      const [overviewResponse, registrationsResponse] = await Promise.all([
+        fetch(`${API_BASE_URL}/admin/overview?admin_user_id=${admin}`, { cache: "no-store" }),
+        fetch(`${API_BASE_URL}/admin/registrations?admin_user_id=${admin}&limit=20`, { cache: "no-store" }),
+      ]);
+      const data = await overviewResponse.json().catch(() => null);
+      if (!overviewResponse.ok) throw new Error(apiErrorMessage(data));
+      // A failed registration list shows "unavailable" in its own table instead of
+      // blocking the rest of the dashboard.
+      const registrationData = await registrationsResponse.json().catch(() => null);
       setOverview(data as AdminOverview);
+      setRegistrations(registrationsResponse.ok ? (registrationData as Registration[]) : null);
       setError(null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : NETWORK_ERROR_MESSAGE);
@@ -176,6 +189,43 @@ export default function AdminDashboardPage() {
             <p className="mt-2 text-3xl font-semibold text-purple-900">{platform?.pending_verifications ?? "—"}</p>
             <p className="mt-1 text-sm text-purple-800">pending review · open verification queue →</p>
           </Link>
+        </div>
+      </section>
+
+      <section aria-labelledby="registrations-heading" className="space-y-4">
+        <div>
+          <h2 id="registrations-heading" className="font-heading text-2xl font-semibold text-stone-900">Registration History</h2>
+          <p className="mt-1 text-sm text-stone-500">
+            The 20 most recent accounts, newest first, from the account creation time PostgreSQL records. Emails are not shown.
+          </p>
+        </div>
+        <div className="overflow-x-auto rounded-lg border border-stone-200 bg-white">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-stone-50 text-stone-500">
+              <tr><th className="px-4 py-3">Registered</th><th className="px-4 py-3">User ID</th><th className="px-4 py-3">Name</th><th className="px-4 py-3">Role</th></tr>
+            </thead>
+            <tbody className="divide-y divide-stone-100 text-stone-700">
+              {registrations === null ? (
+                <tr><td colSpan={4} className="px-4 py-6 text-center text-stone-400">{loading ? "Loading…" : "Registration history unavailable."}</td></tr>
+              ) : registrations.length === 0 ? (
+                <tr><td colSpan={4} className="px-4 py-6 text-center text-stone-400">No accounts have been registered yet.</td></tr>
+              ) : (
+                registrations.map((row) => (
+                  <tr key={row.user_id}>
+                    <td className="whitespace-nowrap px-4 py-3">{row.registered_at ? new Date(row.registered_at).toLocaleString() : "Not recorded"}</td>
+                    <td className="px-4 py-3 font-mono text-xs">{row.user_id}</td>
+                    <td className="px-4 py-3">{row.name ?? "—"}</td>
+                    <td className="px-4 py-3">
+                      <span className="rounded-full bg-teal-50 px-2.5 py-0.5 text-xs font-semibold capitalize text-teal-800">{row.role}</span>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+          <div className="border-t border-stone-200 bg-stone-50 px-4 py-3 text-xs text-stone-500">
+            Registration history only: logins, failed attempts, profile changes and deletions are not recorded.
+          </div>
         </div>
       </section>
 
