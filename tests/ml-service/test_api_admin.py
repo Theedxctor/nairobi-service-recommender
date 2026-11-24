@@ -34,6 +34,11 @@ class AdminCursor:
         return None
 
     def fetchall(self):
+        if self.query.startswith("SELECT u.user_id, u.role"):
+            return [
+                ("U0103", "provider", "New Provider", datetime(2026, 11, 24, 9, 30)),
+                ("U0102", "client", "New Client", datetime(2026, 11, 23, 18, 5)),
+            ]
         if "FROM service_providers sp" not in self.query:
             return []
         status = self.review_status or ("approved" if self.verified else "pending")
@@ -68,6 +73,38 @@ def test_non_admin_is_forbidden(admin_api):
     client, cursor, _ = admin_api
     cursor.role = "client"
     assert client.get("/admin/providers", params={"admin_user_id": "U0007"}).status_code == 403
+
+
+def test_admin_sees_registration_history_newest_first(admin_api):
+    client, cursor, _ = admin_api
+    response = client.get("/admin/registrations", params={"admin_user_id": "U0004", "limit": 10})
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert [row["user_id"] for row in body] == ["U0103", "U0102"]
+    assert body[0] == {
+        "user_id": "U0103", "role": "provider", "name": "New Provider",
+        "registered_at": "2026-11-24T09:30:00",
+    }
+    assert "ORDER BY u.created_at DESC" in cursor.query
+
+
+def test_registration_history_does_not_expose_email(admin_api):
+    client, _, _ = admin_api
+    body = client.get("/admin/registrations", params={"admin_user_id": "U0004"}).json()
+    assert all("email" not in row and "password_hash" not in row for row in body)
+
+
+def test_registration_history_is_admin_only(admin_api):
+    client, cursor, _ = admin_api
+    cursor.role = "provider"
+    response = client.get("/admin/registrations", params={"admin_user_id": "U0007"})
+    assert response.status_code == 403
+
+
+def test_registration_history_rejects_out_of_range_limit(admin_api):
+    client, _, _ = admin_api
+    response = client.get("/admin/registrations", params={"admin_user_id": "U0004", "limit": 500})
+    assert response.status_code == 422
 
 
 def test_admin_can_review_provider_identity(admin_api):
