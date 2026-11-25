@@ -10,7 +10,9 @@ COPY ml-service/requirements-api.txt .
 RUN pip install --no-cache-dir --default-timeout=120 --retries 5 -r requirements-api.txt
 
 COPY data/raw /app/data/raw
-COPY ml-service/api.py ml-service/feature_engineering.py ml-service/finalize_model.py ./
+# Every local module api.py imports must be listed here (checked by
+# tests/ml-service/test_dockerfile.py, #109).
+COPY ml-service/api.py ml-service/feature_engineering.py ml-service/explain.py ml-service/finalize_model.py ./
 
 # The .pkl is gitignored, so train it here. finalize_model.py is
 # deterministic (random_state=42) and only uses the 5 pre-outcome features.
