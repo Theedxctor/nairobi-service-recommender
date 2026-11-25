@@ -43,11 +43,17 @@ export function clearAuth() {
  * missing or expired, so the stored session is cleared and the admin is sent
  * back to /login rather than left on a page full of errors.
  */
+// Set once the first 401 starts the redirect. A page that loads several admin
+// endpoints at once gets several 401s; without this, each would start its
+// own navigation to /login and abort the one before it (#107).
+let redirectingToLogin = false;
+
 export async function adminFetch(auth: NaiserveAuth, path: string, init: RequestInit = {}) {
   const headers = new Headers(init.headers);
   if (auth.token) headers.set("Authorization", `Bearer ${auth.token}`);
   const response = await fetch(`${API_BASE_URL}${path}`, { cache: "no-store", ...init, headers });
-  if (response.status === 401) {
+  if (response.status === 401 && !redirectingToLogin) {
+    redirectingToLogin = true;
     clearAuth();
     window.location.replace("/login");
   }
