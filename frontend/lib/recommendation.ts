@@ -160,6 +160,14 @@ export interface Booking {
   // date and slot only change once the other party accepts it.
   reschedule?: { proposed_by: "client" | "provider"; job_date: string; time_slot: string; created_at: string } | null;
   reliability_score: number | null;
+  // Where exactly to go (#105). The API fills these per viewer: a provider
+  // gets the exact point, directions and the client's phone only while the
+  // booking is confirmed; a client gets the provider's phone only then.
+  client_lat?: number | null;
+  client_lng?: number | null;
+  location_details?: string | null;
+  client_phone?: string | null;
+  provider_phone?: string | null;
   status: "pending" | "confirmed" | "completed" | "cancelled";
   // Set when cancelled (#81); null for bookings cancelled before this was recorded.
   cancelled_by?: "client" | "provider" | null;

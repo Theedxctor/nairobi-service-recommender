@@ -1,5 +1,5 @@
 import { test, expect, request } from "@playwright/test";
-import { API, RECOMMEND_BODY, createClient, createProvider, login, retireProvider } from "./fixtures";
+import { API, DIRECTIONS, RECOMMEND_BODY, createClient, createProvider, login, retireProvider } from "./fixtures";
 
 // #81: a cancelled booking records who cancelled and why. A reason is required
 // once a booking is confirmed, optional while it is still a pending request.
@@ -11,7 +11,7 @@ test("cancellation reasons are required after confirmation, stored, and shown to
   const api = await request.newContext();
   const book = async () => {
     const res = await api.post(`${API}/bookings`, {
-      data: { client_id: client.clientId, provider_id: provider.providerId, ...RECOMMEND_BODY },
+      data: { client_id: client.clientId, provider_id: provider.providerId, ...RECOMMEND_BODY, location_details: DIRECTIONS },
     });
     expect(res.status(), await res.text()).toBe(201);
     return (await res.json()).booking_id as number;

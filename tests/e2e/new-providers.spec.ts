@@ -1,5 +1,5 @@
 import { test, expect, request } from "@playwright/test";
-import { API, JOB_DATE, createClient, createProvider, login, retireProvider, waitForRequestForm } from "./fixtures";
+import { API, DIRECTIONS, JOB_DATE, createClient, createProvider, login, retireProvider, waitForRequestForm } from "./fixtures";
 
 // #61: providers with no history rank below the top 10 and get their own
 // "New on NaiServe" section. A carpenter is used so our fresh provider is the
@@ -40,6 +40,7 @@ test("New on NaiServe lists new providers outside the top 10 and they can be boo
     await section.locator(`a[href="/booking?provider=${provider.providerId}"]`).click();
     await page.waitForURL(`**/booking?provider=${provider.providerId}`);
     await expect(page.getByText("new provider with no job history", { exact: false })).toBeVisible();
+    await page.fill("#directions", DIRECTIONS);
     await page.click("text=Send booking request");
     await page.waitForURL("**/booking?id=*");
     await expect(page.getByText("Pending").first()).toBeVisible();

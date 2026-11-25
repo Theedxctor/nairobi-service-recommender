@@ -1,5 +1,5 @@
 import { test, expect, request } from "@playwright/test";
-import { API, RECOMMEND_BODY, createClient, login, waitForRequestForm } from "./fixtures";
+import { API, DIRECTIONS, RECOMMEND_BODY, createClient, login, waitForRequestForm } from "./fixtures";
 
 test("client request -> results -> booking -> cancel", async ({ page }) => {
   const client = await createClient();
@@ -24,6 +24,7 @@ test("client request -> results -> booking -> cancel", async ({ page }) => {
 
   await page.locator("text=Select Provider").first().click();
   await page.waitForURL("**/booking?provider=*");
+  await page.fill("#directions", DIRECTIONS);
   await page.click("text=Send booking request");
   await page.waitForURL("**/booking?id=*");
   const id = Number(new URL(page.url()).searchParams.get("id"));

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { API_BASE_URL, NETWORK_ERROR_MESSAGE, apiErrorMessage } from "@/lib/api";
 import {
@@ -391,6 +391,7 @@ export function BookingCard({
           </div>
         )}
       </div>
+      <JobLocation booking={booking} role={role} />
       {moveLimits && (
         <form
           onSubmit={(e) => {
@@ -623,5 +624,77 @@ function BookingFeedback({ booking, role, ownerId, onUpdated }: {
         {busy ? "Submitting..." : "Submit review"}
       </button>
     </form>
+  );
+}
+
+
+export function mapsUrl(lat: number, lng: number): string {
+  return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
+}
+
+// Where to go and how to reach the other side (#105). The API decides what
+// each side may see; this only lays out what it returned. Nothing is shown
+// for completed or cancelled bookings, because contact details are shared
+// only while a job is live.
+export function JobLocation({ booking, role }: { booking: Booking; role: BookingRole }) {
+  if (booking.status !== "pending" && booking.status !== "confirmed") return null;
+
+  if (role === "provider" && booking.status === "pending") {
+    return (
+      <p className="mt-3 text-xs text-stone-500">
+        The exact location, directions and the client&apos;s phone number appear here once you accept.
+      </p>
+    );
+  }
+
+  const hasPoint = booking.client_lat != null && booking.client_lng != null;
+  const phone = role === "provider" ? booking.client_phone : booking.provider_phone;
+  const rows: { label: string; value: ReactNode }[] = [];
+
+  if (booking.location_details) {
+    rows.push({ label: "Directions", value: booking.location_details });
+  }
+  if (role === "provider" && hasPoint) {
+    rows.push({
+      label: "Map",
+      value: (
+        <a
+          href={mapsUrl(booking.client_lat as number, booking.client_lng as number)}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-semibold text-teal-700 hover:underline"
+        >
+          Open the exact location in Google Maps
+        </a>
+      ),
+    });
+  }
+  if (role === "provider" && !booking.location_details && !hasPoint) {
+    // Bookings made before directions were collected.
+    rows.push({ label: "Location", value: `Only the area (${booking.client_area}) was given. Call the client to confirm.` });
+  }
+  if (booking.status === "confirmed") {
+    rows.push({
+      label: role === "provider" ? "Client phone" : "Provider phone",
+      value: phone ? (
+        <a href={`tel:${phone.replace(/\s+/g, "")}`} className="font-semibold text-teal-700 hover:underline">
+          {phone}
+        </a>
+      ) : (
+        "Not on file"
+      ),
+    });
+  }
+  if (rows.length === 0) return null;
+
+  return (
+    <dl className="mt-4 space-y-2 rounded-md bg-stone-50 p-3 text-sm">
+      {rows.map(({ label, value }) => (
+        <div key={label} className="flex flex-col gap-0.5 sm:flex-row sm:gap-3">
+          <dt className="w-32 shrink-0 text-xs font-medium uppercase tracking-wide text-stone-400 sm:pt-0.5">{label}</dt>
+          <dd className="break-words text-stone-800">{value}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }

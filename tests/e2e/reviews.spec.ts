@@ -1,5 +1,5 @@
 import { test, expect, request } from "@playwright/test";
-import { API, RECOMMEND_BODY, createClient, createProvider, login, retireProvider } from "./fixtures";
+import { API, DIRECTIONS, RECOMMEND_BODY, createClient, createProvider, login, retireProvider } from "./fixtures";
 
 test("completed booking review persists, reaches provider, and updates recommendations", async ({ browser }) => {
   const client = await createClient();
@@ -9,7 +9,7 @@ test("completed booking review persists, reaches provider, and updates recommend
   const providerContext = await browser.newContext();
   try {
     const created = await api.post(`${API}/bookings`, {
-      data: { ...RECOMMEND_BODY, client_id: client.clientId, provider_id: provider.providerId },
+      data: { ...RECOMMEND_BODY, client_id: client.clientId, provider_id: provider.providerId, location_details: DIRECTIONS },
     });
     expect(created.status(), await created.text()).toBe(201);
     const id = (await created.json()).booking_id;

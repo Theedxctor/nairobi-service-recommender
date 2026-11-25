@@ -193,6 +193,10 @@ CREATE TABLE bookings (
     -- Exact job location the score was computed for (NULL = area centroid used)
     client_lat DECIMAL(9,6),
     client_lng DECIMAL(9,6),
+    -- Directions for the provider (#105): building, house number, landmark.
+    -- Required by the API when no exact location was shared. Shown to the
+    -- provider only once the booking is confirmed.
+    location_details VARCHAR(300),
     status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'confirmed', 'completed', 'cancelled')),
     -- Who cancelled and why (#81). NULL unless cancelled; also NULL for
     -- bookings cancelled before these columns existed.

@@ -4,7 +4,7 @@ import React, { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { readAuth, useAuthGuard } from "../../use-auth-guard";
-import { CancellationNote, RescheduleNote, StatusPill } from "../../bookings-list";
+import { CancellationNote, JobLocation, RescheduleNote, StatusPill } from "../../bookings-list";
 import { API_BASE_URL, NETWORK_ERROR_MESSAGE, apiErrorMessage } from "@/lib/api";
 import {
   Booking,
@@ -54,6 +54,8 @@ function Review({ providerId }: { providerId: string | null }) {
   const [loaded, setLoaded] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Directions for the provider (#105): required when only an area was chosen.
+  const [directions, setDirections] = useState("");
 
   // The provider and request context come from the /results list the
   // client just saw, so what they confirm is exactly what was shown.
@@ -78,10 +80,17 @@ function Review({ providerId }: { providerId: string | null }) {
     );
   }
 
+  const hasExactPoint = request.client_lat != null && request.client_lng != null;
+  const directionsMissing = !hasExactPoint && directions.trim() === "";
+
   const sendRequest = async () => {
     const auth = readAuth();
     if (!auth?.client_id) {
       setError("Your session has no client account. Please log in again.");
+      return;
+    }
+    if (directionsMissing) {
+      setError("Add directions for the provider: building, house number or a landmark.");
       return;
     }
     setSending(true);
@@ -99,6 +108,7 @@ function Review({ providerId }: { providerId: string | null }) {
           time_slot: request.time_slot,
           day_type: request.day_type,
           job_date: request.job_date,
+          location_details: directions.trim() || null,
         }),
       });
       const data = await res.json().catch(() => null);
@@ -140,12 +150,39 @@ function Review({ providerId }: { providerId: string | null }) {
         <p className="mt-4 text-sm italic text-stone-500">{capitalize(provider.explanation)}</p>
         <dl className="mt-6 grid grid-cols-2 gap-4 border-t border-stone-100 pt-6">
           <Detail label="Service" value={capitalize(request.service_type)} />
-          <Detail label="Your area" value={request.client_area} />
+          <Detail
+            label="Your area"
+            value={hasExactPoint ? `${request.client_area} (exact location shared)` : request.client_area}
+          />
           <Detail label="Time" value={TIME_SLOT_LABELS[request.time_slot] ?? request.time_slot} />
           <Detail label={request.job_date ? "Date" : "Day"} value={whenLabel(request)} />
           <Detail label="Estimated travel" value={`${provider.estimated_travel_min} min`} />
           <Detail label="Distance" value={`${provider.distance_km} km`} />
         </dl>
+        <div className="mt-6 border-t border-stone-100 pt-6">
+          <label htmlFor="directions" className="block text-sm font-medium text-stone-700">
+            Directions for the provider{" "}
+            <span className="font-normal text-stone-500">{hasExactPoint ? "(optional)" : "(required)"}</span>
+          </label>
+          <p id="directions-help" className="mt-1 text-xs text-stone-500">
+            {hasExactPoint
+              ? "Your exact location is shared. Add a building, gate or house number if it helps."
+              : `"${request.client_area}" is a whole area. Add the road, building, house number or a landmark.`}{" "}
+            The provider sees this, and your phone number, only after accepting.
+          </p>
+          <textarea
+            id="directions"
+            aria-describedby="directions-help"
+            value={directions}
+            onChange={(e) => setDirections(e.target.value)}
+            maxLength={300}
+            rows={3}
+            required={!hasExactPoint}
+            placeholder="e.g. Argwings Kodhek Rd, Galana Plaza, Apt 4B. Call at the gate."
+            className="mt-2 w-full rounded-lg border border-stone-300 px-3 py-2 text-sm text-stone-900 focus:border-teal-600 focus:outline-none focus:ring-1 focus:ring-teal-600"
+          />
+          <p className="mt-1 text-right text-xs text-stone-400">{directions.length}/300</p>
+        </div>
       </section>
 
       {error && (
@@ -263,6 +300,7 @@ function Confirmation({ bookingId }: { bookingId: number }) {
             }
           />
         </dl>
+        <JobLocation booking={booking} role="client" />
         {/* Read-only here: it is answered from My Bookings. */}
         <RescheduleNote booking={booking} role="client" />
         <CancellationNote booking={booking} role="client" />
