@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 
-import { API_BASE_URL, NETWORK_ERROR_MESSAGE, apiErrorMessage } from "@/lib/api";
-import { useAuthGuard } from "../../../use-auth-guard";
+import { NETWORK_ERROR_MESSAGE, apiErrorMessage } from "@/lib/api";
+import { adminFetch, useAuthGuard } from "../../../use-auth-guard";
 
 interface MetricSet {
   rmse: number;
@@ -71,11 +71,10 @@ export default function AdminDashboardPage() {
 
   const loadOverview = useCallback(async () => {
     if (!auth?.user_id) return;
-    const admin = encodeURIComponent(auth.user_id);
     try {
       const [overviewResponse, registrationsResponse] = await Promise.all([
-        fetch(`${API_BASE_URL}/admin/overview?admin_user_id=${admin}`, { cache: "no-store" }),
-        fetch(`${API_BASE_URL}/admin/registrations?admin_user_id=${admin}&limit=20`, { cache: "no-store" }),
+        adminFetch(auth, "/admin/overview"),
+        adminFetch(auth, "/admin/registrations?limit=20"),
       ]);
       const data = await overviewResponse.json().catch(() => null);
       if (!overviewResponse.ok) throw new Error(apiErrorMessage(data));
@@ -90,7 +89,7 @@ export default function AdminDashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [auth?.user_id]);
+  }, [auth]);
 
   useEffect(() => {
     if (!checked || !auth) return;
@@ -105,11 +104,7 @@ export default function AdminDashboardPage() {
     setTriggering(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/admin/model/retrain`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ admin_user_id: auth.user_id }),
-      });
+      const response = await adminFetch(auth, "/admin/model/retrain", { method: "POST" });
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(apiErrorMessage(data));
       await loadOverview();

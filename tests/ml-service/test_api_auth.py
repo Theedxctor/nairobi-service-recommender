@@ -120,12 +120,16 @@ def test_login_success(client, fake_db, monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json() == {
+    body = response.json()
+    token = body.pop("token")
+    assert body == {
         "user_id": "U0001",
         "role": "client",
         "name": "Wanjiku Kamau",
         "client_id": "C0001",
     }
+    # The token is server-signed and names the logged-in user.
+    assert api._verify_session_token(token)["sub"] == "U0001"
 
 
 def test_login_wrong_password_returns_401(client, fake_db, monkeypatch):

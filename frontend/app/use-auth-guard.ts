@@ -2,6 +2,8 @@
 
 import { useEffect, useState } from "react";
 
+import { API_BASE_URL } from "@/lib/api";
+
 export type Role = "client" | "provider" | "admin";
 
 export interface NaiserveAuth {
@@ -10,6 +12,8 @@ export interface NaiserveAuth {
   name?: string;
   client_id?: string;
   provider_id?: string;
+  /** Signed session token from /auth/login. Required by the /admin endpoints. */
+  token?: string;
 }
 
 const STORAGE_KEY = "naiserve_auth";
@@ -32,6 +36,22 @@ export function readAuth(): NaiserveAuth | null {
 
 export function clearAuth() {
   window.localStorage.removeItem(STORAGE_KEY);
+}
+
+/**
+ * Calls an /admin endpoint with the session token. A 401 means the token is
+ * missing or expired, so the stored session is cleared and the admin is sent
+ * back to /login rather than left on a page full of errors.
+ */
+export async function adminFetch(auth: NaiserveAuth, path: string, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  if (auth.token) headers.set("Authorization", `Bearer ${auth.token}`);
+  const response = await fetch(`${API_BASE_URL}${path}`, { cache: "no-store", ...init, headers });
+  if (response.status === 401) {
+    clearAuth();
+    window.location.replace("/login");
+  }
+  return response;
 }
 
 /**

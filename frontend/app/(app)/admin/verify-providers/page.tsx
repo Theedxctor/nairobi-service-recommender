@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { API_BASE_URL, NETWORK_ERROR_MESSAGE, apiErrorMessage } from "@/lib/api";
-import { useAuthGuard } from "../../../use-auth-guard";
+import { NETWORK_ERROR_MESSAGE, apiErrorMessage } from "@/lib/api";
+import { adminFetch, useAuthGuard } from "../../../use-auth-guard";
 
 type VerificationStatus = "pending" | "approved" | "rejected";
 
@@ -41,10 +41,7 @@ export default function VerifyProvidersPage() {
     if (!auth?.user_id) return;
     setLoading(true);
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/admin/providers?admin_user_id=${encodeURIComponent(auth.user_id)}`,
-        { cache: "no-store" },
-      );
+      const response = await adminFetch(auth, "/admin/providers");
       const data = await response.json().catch(() => null);
       if (!response.ok) throw new Error(apiErrorMessage(data));
       setProviders(data as ProviderReview[]);
@@ -54,7 +51,7 @@ export default function VerifyProvidersPage() {
     } finally {
       setLoading(false);
     }
-  }, [auth?.user_id]);
+  }, [auth]);
 
   useEffect(() => {
     if (checked && auth) load();
@@ -76,11 +73,10 @@ export default function VerifyProvidersPage() {
     setBusy(provider.provider_id);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/admin/providers/${provider.provider_id}/verification`, {
+      const response = await adminFetch(auth, `/admin/providers/${provider.provider_id}/verification`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          admin_user_id: auth.user_id,
           decision,
           note: (notes[provider.provider_id] ?? "").trim() || null,
         }),

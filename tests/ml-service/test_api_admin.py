@@ -50,6 +50,13 @@ class AdminCursor:
         )]
 
 
+def bearer(user_id="U0004", role="admin", now=None):
+    return {"Authorization": f"Bearer {api._issue_session_token(user_id, role, now=now)}"}
+
+
+ADMIN = bearer()
+
+
 @pytest.fixture
 def admin_api(monkeypatch):
     cursor = AdminCursor()
@@ -61,7 +68,7 @@ def admin_api(monkeypatch):
 
 def test_admin_overview_returns_platform_and_model_evidence(admin_api):
     client, _, _ = admin_api
-    response = client.get("/admin/overview", params={"admin_user_id": "U0004"})
+    response = client.get("/admin/overview", headers=ADMIN)
     assert response.status_code == 200
     body = response.json()
     assert body["platform"]["total_bookings"] == 12
@@ -72,12 +79,12 @@ def test_admin_overview_returns_platform_and_model_evidence(admin_api):
 def test_non_admin_is_forbidden(admin_api):
     client, cursor, _ = admin_api
     cursor.role = "client"
-    assert client.get("/admin/providers", params={"admin_user_id": "U0007"}).status_code == 403
+    assert client.get("/admin/providers", headers=bearer("U0007", "client")).status_code == 403
 
 
 def test_admin_sees_registration_history_newest_first(admin_api):
     client, cursor, _ = admin_api
-    response = client.get("/admin/registrations", params={"admin_user_id": "U0004", "limit": 10})
+    response = client.get("/admin/registrations", params={"limit": 10}, headers=ADMIN)
     assert response.status_code == 200, response.text
     body = response.json()
     assert [row["user_id"] for row in body] == ["U0103", "U0102"]
@@ -90,27 +97,26 @@ def test_admin_sees_registration_history_newest_first(admin_api):
 
 def test_registration_history_does_not_expose_email(admin_api):
     client, _, _ = admin_api
-    body = client.get("/admin/registrations", params={"admin_user_id": "U0004"}).json()
+    body = client.get("/admin/registrations", headers=ADMIN).json()
     assert all("email" not in row and "password_hash" not in row for row in body)
 
 
 def test_registration_history_is_admin_only(admin_api):
     client, cursor, _ = admin_api
     cursor.role = "provider"
-    response = client.get("/admin/registrations", params={"admin_user_id": "U0007"})
+    response = client.get("/admin/registrations", headers=bearer("U0007", "provider"))
     assert response.status_code == 403
 
 
 def test_registration_history_rejects_out_of_range_limit(admin_api):
     client, _, _ = admin_api
-    response = client.get("/admin/registrations", params={"admin_user_id": "U0004", "limit": 500})
+    response = client.get("/admin/registrations", params={"limit": 500}, headers=ADMIN)
     assert response.status_code == 422
 
 
 def test_admin_can_review_provider_identity(admin_api):
     client, cursor, connection = admin_api
-    response = client.patch("/admin/providers/P9000/verification", json={
-        "admin_user_id": "U0004",
+    response = client.patch("/admin/providers/P9000/verification", headers=ADMIN, json={
         "decision": "approve",
         "note": "Contact and profile evidence checked.",
     })
@@ -138,8 +144,68 @@ def test_retraining_trigger_is_single_flight(admin_api, monkeypatch):
             started.append((self.target, self.args, self.daemon))
 
     monkeypatch.setattr(api.threading, "Thread", DeferredThread)
-    first = client.post("/admin/model/retrain", json={"admin_user_id": "U0004"})
-    second = client.post("/admin/model/retrain", json={"admin_user_id": "U0004"})
+    first = client.post("/admin/model/retrain", headers=ADMIN)
+    second = client.post("/admin/model/retrain", headers=ADMIN)
     assert first.status_code == 202 and first.json()["status"] == "queued"
     assert second.status_code == 409
     assert len(started) == 1 and started[0][2] is True
+
+
+# --- Session token enforcement (#101) --------------------------------------
+ADMIN_ROUTES = [
+    ("get", "/admin/overview"),
+    ("get", "/admin/providers"),
+    ("get", "/admin/registrations"),
+    ("get", "/admin/model/retrain/status"),
+    ("post", "/admin/model/retrain"),
+    ("patch", "/admin/providers/P9000/verification"),
+]
+
+
+@pytest.mark.parametrize("method,path", ADMIN_ROUTES)
+def test_admin_routes_reject_requests_without_a_token(admin_api, method, path):
+    client, _, connection = admin_api
+    kwargs = {"json": {"decision": "approve"}} if method == "patch" else {}
+    response = getattr(client, method)(path, **kwargs)
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == "Bearer"
+    connection.commit.assert_not_called()
+
+
+def test_claimed_admin_id_in_the_url_is_no_longer_enough(admin_api):
+    client, _, _ = admin_api
+    response = client.get("/admin/overview", params={"admin_user_id": "U0004"})
+    assert response.status_code == 401
+
+
+def test_tampered_token_is_rejected(admin_api):
+    client, _, _ = admin_api
+    body, signature = api._issue_session_token("U0007", "client").split(".")
+    forged_body = api._b64url(b'{"sub":"U0004","role":"admin","exp":9999999999}')
+    for token in (f"{forged_body}.{signature}", f"{body}.{signature[:-2]}xx", "not-a-token", ""):
+        response = client.get("/admin/overview", headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == 401, token
+
+
+def test_expired_token_is_rejected(admin_api):
+    client, _, _ = admin_api
+    stale = bearer(now=0)  # issued in 1970, long expired
+    assert client.get("/admin/overview", headers=stale).status_code == 401
+
+
+def test_token_signed_with_another_secret_is_rejected(admin_api, monkeypatch):
+    client, _, _ = admin_api
+    monkeypatch.setenv("SESSION_SECRET", "secret-of-another-deployment")
+    foreign = bearer()
+    monkeypatch.setenv("SESSION_SECRET", "this-deployment")
+    assert client.get("/admin/overview", headers=foreign).status_code == 401
+
+
+def test_token_identity_is_recorded_as_reviewer(admin_api):
+    client, cursor, _ = admin_api
+    client.patch(
+        "/admin/providers/P9000/verification",
+        headers=bearer("U0099"),
+        json={"decision": "reject", "admin_user_id": "U0004"},  # body claim is ignored
+    )
+    assert cursor.reviewer == "U0099"
