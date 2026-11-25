@@ -55,6 +55,7 @@ from feature_engineering import (
     _hash_password,
     _verify_password,
 )
+from explain import behind_top, describe, feature_contributions
 
 EMAIL_PATTERN = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
 
@@ -217,6 +218,9 @@ class PredictResponse(BaseModel):
     distance_km: float
     primary_corridor: str
     explanation: str
+    # Reliability points each feature added to (+) or took from (-) the score,
+    # relative to a typical booking, from the model itself (#103).
+    factors: dict[str, float] = Field(default_factory=dict)
 
 
 class RecommendRequest(ContextFields, LocationFields):
@@ -248,6 +252,7 @@ class RankedProvider(BaseModel):
     is_new: bool = False  # no job history yet; score uses the cold-start prior (#52)
     is_verified: bool = False
     explanation: str
+    factors: dict[str, float] = Field(default_factory=dict)  # see PredictResponse
 
 
 class RegisterRequest(BaseModel):
@@ -1068,21 +1073,27 @@ def _score_provider(client_area, provider_row, time_slot, day_type, client_latln
     return score, features
 
 
-def _explain(features, provider_row):
-    reasons = []
-    if features["congestion_multiplier"] <= 1.5:
-        reasons.append("clear route at this time")
-    elif features["congestion_multiplier"] >= 2.5:
-        reasons.append("heavy congestion on this route")
-    if features["provider_area_road_quality"] == "good":
-        reasons.append("good road access to provider's base area")
-    elif features["provider_area_road_quality"] == "poor":
-        reasons.append("poor road access to provider's base area")
-    if not features["provider_has_history"]:
-        reasons.append("new provider with no job history yet (completion rate assumed at the platform median)")
-    elif provider_row["completion_rate"] >= 0.85:
-        reasons.append("strong historical completion rate")
-    return "; ".join(reasons) if reasons else "based on standard traffic and provider profile"
+def _explain_rows(pipe, X, feature_rows):
+    """(explanation, factors) per row of X, both read from the model's own
+    per-feature contributions (see explain.py), not from fixed rules."""
+    factor_rows, _ = feature_contributions(pipe, X)
+    return [
+        (describe(factors, has_history=f["provider_has_history"], default_traffic=f["traffic_is_default"]), factors)
+        for factors, f in zip(factor_rows, feature_rows)
+    ]
+
+
+def _with_comparison(shown):
+    """Adds "Behind #1 mainly on: ..." to every provider below the first one
+    in the list the client actually sees (after filters and the top_n cut)."""
+    if not shown:
+        return shown
+    top = shown[0].factors
+    out = [shown[0]]
+    for p in shown[1:]:
+        behind = behind_top(p.factors, top) if p.factors and top else None
+        out.append(p.model_copy(update={"explanation": f"{p.explanation}. {behind}"}) if behind else p)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -1312,10 +1323,16 @@ def predict(req: PredictRequest):
     provider_row = match.iloc[0]
 
     client_area, client_latlng = _resolve_location(req.client_area, req.client_lat, req.client_lng)
+    pipe = pipeline  # one model for score and explanation, even if a retrain swaps it mid-request
     try:
-        score, features = _score_provider(client_area, provider_row, req.time_slot, req.day_type, client_latlng)
+        features = build_feature_row(
+            client_area, provider_row, req.time_slot, req.day_type, ref, client_latlng=client_latlng
+        )
     except ValueError as e:
         raise HTTPException(400, str(e))
+    X = pd.DataFrame([{k: features[k] for k in MODEL_FEATURES}])
+    score = float(pipe.predict(X)[0])
+    [(explanation, factors)] = _explain_rows(pipe, X, [features])
 
     return PredictResponse(
         provider_id=req.provider_id,
@@ -1323,7 +1340,8 @@ def predict(req: PredictRequest):
         estimated_travel_min=round(max(4.0, float(features["estimated_travel_min"])), 1),
         distance_km=round(max(0.8, float(features["distance_km"])), 2),
         primary_corridor=features["primary_corridor"],
-        explanation=_explain(features, provider_row),
+        explanation=explanation,
+        factors=factors,
     )
 
 
@@ -1377,10 +1395,12 @@ def _rank_available(req):
     if not scored_rows:
         return []
     X = pd.DataFrame([{k: f[k] for k in MODEL_FEATURES} for _, f in scored_rows])
-    scores = pipeline.predict(X)
+    pipe = pipeline  # one model for scores and explanations, even if a retrain swaps it mid-request
+    scores = pipe.predict(X)
+    explained = _explain_rows(pipe, X, [f for _, f in scored_rows])
 
     ranked = []
-    for (provider_row, features), score in zip(scored_rows, scores):
+    for (provider_row, features), score, (explanation, factors) in zip(scored_rows, scores, explained):
         ranked.append(RankedProvider(
             provider_id=str(provider_row["provider_id"]),
             name=str(provider_row["name"]),
@@ -1389,7 +1409,8 @@ def _rank_available(req):
             distance_km=round(max(0.8, float(features["distance_km"])), 2),
             hourly_rate_ksh=int(provider_row["hourly_rate_ksh"]),
             rating=None if pd.isna(provider_row["rating"]) else float(provider_row["rating"]),
-            explanation=_explain(features, provider_row),
+            explanation=explanation,
+            factors=factors,
             is_new=not features["provider_has_history"],
             is_verified=False if pd.isna(provider_row["is_verified"]) else bool(provider_row["is_verified"]),
         ))
@@ -1414,7 +1435,8 @@ def _apply_filters(ranked, req):
 
 @app.post("/recommend", response_model=list[RankedProvider])
 def recommend(req: RecommendRequest):
-    return _current_ratings(_apply_filters(_rank_available(req), req)[: req.top_n])
+    shown = _apply_filters(_rank_available(req), req)[: req.top_n]
+    return _current_ratings(_with_comparison(shown))
 
 
 @app.post("/recommend/new-providers", response_model=list[RankedProvider])
