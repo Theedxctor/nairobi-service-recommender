@@ -6,7 +6,9 @@ const ADMIN_AUTH = {
   user_id: "U-E2E-ADMIN",
   role: "admin",
   name: "E2E Administrator",
+  token: "e2e-admin-token",
 };
+const ADMIN_BEARER = `Bearer ${ADMIN_AUTH.token}`;
 
 interface RetrainingFixture {
   status: "idle" | "queued" | "running" | "succeeded" | "failed";
@@ -88,12 +90,21 @@ test("admin routes reject signed-out users and client accounts", async ({ page }
   await page.waitForURL("**/dashboard");
   await expect(page.getByRole("heading", { name: /welcome/i })).toBeVisible();
 
+  // The API enforces this too: no token is 401, a genuine client token is 403.
+  const clientToken = await page.evaluate(
+    () => JSON.parse(window.localStorage.getItem("naiserve_auth") ?? "{}").token as string,
+  );
+  expect(clientToken).toBeTruthy();
   const api = await request.newContext();
   try {
-    const response = await api.get(`${API}/admin/providers`, {
+    const anonymous = await api.get(`${API}/admin/providers`, {
       params: { admin_user_id: client.userId },
     });
-    expect(response.status()).toBe(403);
+    expect(anonymous.status()).toBe(401);
+    const asClient = await api.get(`${API}/admin/providers`, {
+      headers: { Authorization: `Bearer ${clientToken}` },
+    });
+    expect(asClient.status()).toBe(403);
   } finally {
     await api.dispose();
   }
@@ -103,10 +114,16 @@ test("administrator monitors the platform and starts one retraining job", async 
   let retraining = { ...IDLE_RETRAINING };
   let retrainRequests = 0;
 
-  await page.route(`${API}/admin/overview?**`, async (route) => {
+  await page.route(`${API}/admin/overview`, async (route) => {
+    expect(route.request().headers()["authorization"]).toBe(ADMIN_BEARER);
     await route.fulfill({ json: { platform: PLATFORM, model: MODEL, retraining } });
   });
+  await page.route(`${API}/admin/registrations?**`, async (route) => {
+    expect(route.request().headers()["authorization"]).toBe(ADMIN_BEARER);
+    await route.fulfill({ json: [] });
+  });
   await page.route(`${API}/admin/model/retrain`, async (route) => {
+    expect(route.request().headers()["authorization"]).toBe(ADMIN_BEARER);
     retrainRequests += 1;
     retraining = {
       status: "running",
@@ -135,6 +152,22 @@ test("administrator monitors the platform and starts one retraining job", async 
   expect(retrainRequests).toBe(1);
 });
 
+test("an expired admin session is sent back to login", async ({ page }) => {
+  await page.route(`${API}/admin/**`, async (route) => {
+    await route.fulfill({ status: 401, json: { detail: "Your admin session is missing or has expired." } });
+  });
+  // Seed the session once only, so the cleared value isn't re-added on /login.
+  await page.addInitScript((auth) => {
+    if (window.sessionStorage.getItem("seeded")) return;
+    window.sessionStorage.setItem("seeded", "1");
+    window.localStorage.setItem("naiserve_auth", JSON.stringify(auth));
+  }, ADMIN_AUTH);
+  await page.goto("/admin/dashboard");
+  await page.waitForURL("**/login", { waitUntil: "commit" });
+  await expect(page.getByLabel(/email/i)).toBeVisible();
+  expect(await page.evaluate(() => window.localStorage.getItem("naiserve_auth"))).toBeNull();
+});
+
 test("administrator must explain a rejection and the provider moves to the rejected queue", async ({ page }) => {
   let provider: ProviderFixture = {
     provider_id: "P9000",
@@ -152,18 +185,18 @@ test("administrator must explain a rejection and the provider moves to the rejec
   };
   let reviewRequests = 0;
 
-  await page.route(`${API}/admin/providers?**`, async (route) => {
+  await page.route(`${API}/admin/providers`, async (route) => {
+    expect(route.request().headers()["authorization"]).toBe(ADMIN_BEARER);
     await route.fulfill({ json: [provider] });
   });
   await page.route(`${API}/admin/providers/${provider.provider_id}/verification`, async (route) => {
     reviewRequests += 1;
+    expect(route.request().headers()["authorization"]).toBe(ADMIN_BEARER);
     const body = route.request().postDataJSON() as {
-      admin_user_id: string;
       decision: string;
       note: string;
     };
     expect(body).toEqual({
-      admin_user_id: ADMIN_AUTH.user_id,
       decision: "reject",
       note: "Phone contact could not be confirmed.",
     });

@@ -24,13 +24,18 @@ Endpoints:
 Run with:  uvicorn api:app --reload --port 8000
 Docs at:   http://localhost:8000/docs
 """
+import base64
+import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 import threading
+import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional
@@ -276,6 +281,9 @@ class LoginResponse(BaseModel):
     name: Optional[str] = None
     client_id: Optional[str] = None
     provider_id: Optional[str] = None
+    # Signed, expiring session token. Only the /admin endpoints require it so
+    # far; client and provider endpoints still trust the claimed id (#84).
+    token: Optional[str] = None
 
 
 class ProfileResponse(BaseModel):
@@ -416,7 +424,6 @@ class LocationUpdate(BaseModel):
 
 
 class AdminVerificationUpdate(BaseModel):
-    admin_user_id: str
     decision: str = Field(..., examples=["approve"])
     note: Optional[str] = Field(None, max_length=500)
 
@@ -456,10 +463,6 @@ class AdminRegistrationResponse(BaseModel):
     role: str
     name: Optional[str] = None
     registered_at: Optional[datetime] = None
-
-
-class AdminRetrainRequest(BaseModel):
-    admin_user_id: str
 
 
 # ---------------------------------------------------------------------------
@@ -537,10 +540,75 @@ def _insert_user(cursor, user_id, email, password_hash, role, client_id, provide
 
 
 # ---------------------------------------------------------------------------
-# Administrator helpers. The current prototype still has no signed session
-# token, but every admin operation verifies the claimed user_id against the
-# database instead of trusting a role sent by the browser.
+# Administrator session tokens (#101). Login returns a signed, expiring token;
+# every /admin endpoint takes the caller's identity from it instead of an id
+# sent by the browser, then re-checks the admin role in the database.
+# Client and provider endpoints still trust the claimed id (#84).
 # ---------------------------------------------------------------------------
+SESSION_TTL_SECONDS = int(os.environ.get("SESSION_TTL_HOURS", "12")) * 3600
+_EPHEMERAL_SESSION_SECRET = secrets.token_bytes(32)
+
+
+def _session_secret() -> bytes:
+    """SESSION_SECRET if set; otherwise a key derived from DB_PASSWORD.
+
+    The derived key keeps an existing deployment working without a new
+    setting, and is never the password itself. With neither set (bare local
+    runs) a random per-process key is used, so tokens end when the API restarts.
+    """
+    explicit = os.environ.get("SESSION_SECRET")
+    if explicit:
+        return explicit.encode()
+    db_password = os.environ.get("DB_PASSWORD")
+    if db_password:
+        return hmac.new(db_password.encode(), b"naiserve-session-v1", hashlib.sha256).digest()
+    return _EPHEMERAL_SESSION_SECRET
+
+
+def _b64url(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def _sign(body: str) -> str:
+    return _b64url(hmac.new(_session_secret(), body.encode(), hashlib.sha256).digest())
+
+
+def _issue_session_token(user_id, role, now=None):
+    """`<payload>.<signature>`: base64url JSON {sub, role, exp}, HMAC-SHA256 signed."""
+    issued = int(time.time() if now is None else now)
+    payload = {"sub": user_id, "role": role, "exp": issued + SESSION_TTL_SECONDS}
+    body = _b64url(json.dumps(payload, separators=(",", ":")).encode())
+    return f"{body}.{_sign(body)}"
+
+
+def _verify_session_token(token):
+    """Payload dict for a genuine, unexpired token; None for anything else."""
+    try:
+        body, signature = token.split(".")
+        if not hmac.compare_digest(signature, _sign(body)):
+            return None
+        payload = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
+        if int(payload["exp"]) <= time.time():
+            return None
+        return payload
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return None
+
+
+def require_admin_session(authorization: Optional[str] = Header(None)) -> str:
+    """User id from a verified Bearer token. Endpoints still re-check the admin
+    role in the database, so a demoted account loses access immediately."""
+    scheme, _, token = (authorization or "").partition(" ")
+    payload = _verify_session_token(token.strip()) if scheme.lower() == "bearer" else None
+    if not isinstance(payload, dict) or not payload.get("sub"):
+        raise HTTPException(
+            401,
+            "Your admin session is missing or has expired. Please sign in again.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return payload["sub"]
+
+
 def _require_admin(cursor, user_id):
     cursor.execute("SELECT role FROM users WHERE user_id = %s", (user_id,))
     row = cursor.fetchone()
@@ -1031,7 +1099,7 @@ def health():
 
 
 @app.get("/admin/overview")
-def admin_overview(admin_user_id: str):
+def admin_overview(admin_user_id: str = Depends(require_admin_session)):
     """Live platform and packaged-model evidence for system monitoring."""
     conn = _get_db_connection()
     try:
@@ -1083,7 +1151,7 @@ def admin_overview(admin_user_id: str):
 
 
 @app.get("/admin/providers", response_model=list[AdminProviderResponse])
-def admin_providers(admin_user_id: str, status: Optional[str] = None):
+def admin_providers(status: Optional[str] = None, admin_user_id: str = Depends(require_admin_session)):
     if status is not None and status not in ("pending", "approved", "rejected"):
         raise HTTPException(422, "status must be pending, approved or rejected.")
     conn = _get_db_connection()
@@ -1096,7 +1164,7 @@ def admin_providers(admin_user_id: str, status: Optional[str] = None):
 
 
 @app.get("/admin/registrations", response_model=list[AdminRegistrationResponse])
-def admin_registrations(admin_user_id: str, limit: int = Query(50, ge=1, le=200)):
+def admin_registrations(limit: int = Query(50, ge=1, le=200), admin_user_id: str = Depends(require_admin_session)):
     """Registration history: the most recent accounts, newest first.
 
     Reads users.created_at, which the database sets on insert. This is not a
@@ -1127,11 +1195,11 @@ def admin_registrations(admin_user_id: str, limit: int = Query(50, ge=1, le=200)
 
 
 @app.patch("/admin/providers/{provider_id}/verification", response_model=AdminProviderResponse)
-def review_provider_identity(provider_id: str, req: AdminVerificationUpdate):
+def review_provider_identity(provider_id: str, req: AdminVerificationUpdate, admin_user_id: str = Depends(require_admin_session)):
     conn = _get_db_connection()
     try:
         cursor = conn.cursor()
-        _require_admin(cursor, req.admin_user_id)
+        _require_admin(cursor, admin_user_id)
         providers = _fetch_admin_providers(cursor, provider_id=provider_id)
         if not providers:
             raise HTTPException(404, f"Unknown provider_id: {provider_id}")
@@ -1152,7 +1220,7 @@ def review_provider_identity(provider_id: str, req: AdminVerificationUpdate):
                 note = EXCLUDED.note,
                 reviewed_at = NOW()
             """,
-            (provider_id, review_status, req.admin_user_id, req.note),
+            (provider_id, review_status, admin_user_id, req.note),
         )
         provider_user = _user_id_for(cursor, "provider_id", provider_id)
         if provider_user:
@@ -1176,7 +1244,7 @@ def review_provider_identity(provider_id: str, req: AdminVerificationUpdate):
 
 
 @app.get("/admin/model/retrain/status")
-def model_retrain_status(admin_user_id: str):
+def model_retrain_status(admin_user_id: str = Depends(require_admin_session)):
     conn = _get_db_connection()
     try:
         cursor = conn.cursor()
@@ -1188,11 +1256,11 @@ def model_retrain_status(admin_user_id: str):
 
 
 @app.post("/admin/model/retrain", status_code=202)
-def trigger_model_retraining(req: AdminRetrainRequest):
+def trigger_model_retraining(admin_user_id: str = Depends(require_admin_session)):
     conn = _get_db_connection()
     try:
         cursor = conn.cursor()
-        _require_admin(cursor, req.admin_user_id)
+        _require_admin(cursor, admin_user_id)
     finally:
         conn.close()
 
@@ -1202,12 +1270,12 @@ def trigger_model_retraining(req: AdminRetrainRequest):
             raise HTTPException(409, "A model retraining job is already running.")
         _retrain_state.update(
             status="queued",
-            requested_by=req.admin_user_id,
+            requested_by=admin_user_id,
             requested_at=requested_at,
             completed_at=None,
             message="Retraining request accepted and queued.",
         )
-    threading.Thread(target=_run_model_retraining, args=(req.admin_user_id,), daemon=True).start()
+    threading.Thread(target=_run_model_retraining, args=(admin_user_id,), daemon=True).start()
     with _retrain_lock:
         return dict(_retrain_state)
 
@@ -1472,6 +1540,7 @@ def login(req: LoginRequest):
         name=user["name"],
         client_id=user["client_id"],
         provider_id=user["provider_id"],
+        token=_issue_session_token(user["user_id"], user["role"]),
     )
 
 

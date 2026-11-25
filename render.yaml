@@ -25,3 +25,5 @@ services:
         value: require         # read by libpq/psycopg2; Neon only accepts SSL
       - key: CORS_ORIGINS
         sync: false            # your Vercel URL, e.g. https://naiserve.vercel.app
+      - key: SESSION_SECRET
+        generateValue: true    # signs admin session tokens (#101); if unset, a key derived from DB_PASSWORD is used
