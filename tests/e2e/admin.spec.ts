@@ -162,9 +162,18 @@ test("an expired admin session is sent back to login", async ({ page }) => {
     window.sessionStorage.setItem("seeded", "1");
     window.localStorage.setItem("naiserve_auth", JSON.stringify(auth));
   }, ADMIN_AUTH);
+  // Every navigation to /login sends a document request, including one that a
+  // later navigation aborts, so this counts redirects started, not finished.
+  let loginRequests = 0;
+  page.on("request", (req) => {
+    if (req.resourceType() === "document" && new URL(req.url()).pathname === "/login") loginRequests++;
+  });
   await page.goto("/admin/dashboard");
-  await page.waitForURL("**/login", { waitUntil: "commit" });
+  // Polls for the final URL, unlike waitForURL, which fails on an aborted navigation.
+  await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByLabel(/email/i)).toBeVisible();
+  await page.waitForLoadState("networkidle");
+  expect(loginRequests).toBe(1); // two parallel 401s, one redirect (#107)
   expect(await page.evaluate(() => window.localStorage.getItem("naiserve_auth"))).toBeNull();
 });
 
