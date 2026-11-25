@@ -322,6 +322,25 @@ class NotificationResponse(BaseModel):
 class BookingCreateRequest(ContextFields, LocationFields):
     client_id: str = Field(..., examples=["C0501"])
     provider_id: str = Field(..., examples=["P0023"])
+    # Where exactly to go (#105). An area alone ("Kilimani") is not enough to
+    # find a house, so directions are required unless an exact point was shared.
+    location_details: Optional[str] = Field(
+        None, max_length=300, examples=["Argwings Kodhek Rd, Galana Plaza, Apt 4B. Call at the gate."]
+    )
+
+    @field_validator("location_details")
+    @classmethod
+    def _trim_location_details(cls, value):
+        return (value.strip() or None) if value is not None else None
+
+    @model_validator(mode="after")
+    def _directions_or_exact_point(self):
+        if self.client_lat is None and not self.location_details:
+            raise ValueError(
+                "Add directions for the provider (building, house number or landmark), "
+                "or share an exact location."
+            )
+        return self
 
 
 class BookingStatusUpdate(BaseModel):
@@ -408,6 +427,13 @@ class BookingResponse(BaseModel):
     reliability_score: Optional[float] = None
     client_lat: Optional[float] = None  # exact job location, if the client shared one
     client_lng: Optional[float] = None
+    # Directions and phone numbers (#105). Filled per viewer by
+    # _booking_for_viewer: the provider gets location and the client's phone
+    # only while the booking is confirmed; the client gets the provider's phone
+    # only while confirmed.
+    location_details: Optional[str] = None
+    client_phone: Optional[str] = None
+    provider_phone: Optional[str] = None
     status: str
     cancelled_by: Optional[str] = None  # "client" / "provider"; None if not recorded
     cancellation_reason: Optional[str] = None
@@ -839,7 +865,8 @@ _BOOKING_SELECT = """
            b.status, b.created_at, b.client_lat, b.client_lng,
            r.rating, r.comment, r.created_at,
            b.cancelled_by, b.cancellation_reason, b.job_date,
-           rs.proposed_by, rs.job_date, rs.time_slot, rs.created_at
+           rs.proposed_by, rs.job_date, rs.time_slot, rs.created_at,
+           b.location_details, c.phone, sp.phone
     FROM bookings b
     LEFT JOIN clients c ON b.client_id = c.client_id
     LEFT JOIN service_providers sp ON b.provider_id = sp.provider_id
@@ -874,6 +901,9 @@ def _row_to_booking(row):
         "reschedule": {"proposed_by": row[21], "job_date": row[22], "time_slot": row[23],
                        "created_at": row[24]}
         if row[21] is not None else None,
+        "location_details": row[25],
+        "client_phone": row[26],
+        "provider_phone": row[27],
     }
 
 
@@ -883,19 +913,46 @@ def _client_exists(cursor, client_id):
 
 
 def _insert_booking(cursor, client_id, provider_id, service_type, client_area, time_slot, day_type,
-                    reliability_score, client_lat=None, client_lng=None, job_date=None):
+                    reliability_score, client_lat=None, client_lng=None, job_date=None,
+                    location_details=None):
     cursor.execute(
         """
         INSERT INTO bookings
             (client_id, provider_id, service_type, client_area, time_slot, day_type, reliability_score,
-             client_lat, client_lng, job_date)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+             client_lat, client_lng, job_date, location_details)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         RETURNING booking_id
         """,
         (client_id, provider_id, service_type, client_area, time_slot, day_type, reliability_score,
-         client_lat, client_lng, job_date),
+         client_lat, client_lng, job_date, location_details),
     )
     return cursor.fetchone()[0]
+
+
+def _booking_for_viewer(booking, viewer):
+    """The booking as one side may see it (#105).
+
+    Before accepting, a provider sees only the area, which is enough to decide.
+    Once the booking is confirmed, the provider also sees the exact point,
+    the directions and the client's phone, and the client sees the provider's
+    phone. Both are hidden again when the booking is completed or cancelled,
+    so contact details are shared only while a job is live. Nobody gets their
+    own phone number echoed back.
+
+    Identity is still taken from the request, not verified (#84), so this is
+    a privacy default, not a security boundary.
+    """
+    b = dict(booking)
+    live = b["status"] == "confirmed"
+    if viewer == "provider":
+        b["provider_phone"] = None
+        if not live:
+            b.update(client_lat=None, client_lng=None, location_details=None, client_phone=None)
+    else:
+        b["client_phone"] = None
+        if not live:
+            b["provider_phone"] = None
+    return BookingResponse(**b)
 
 
 def _fetch_booking(cursor, booking_id):
@@ -1641,6 +1698,7 @@ def create_booking(req: BookingCreateRequest):
             req.time_slot, req.day_type, score,
             *(client_latlng or (None, None)),
             job_date=req.job_date,
+            location_details=req.location_details,
         )
         booking = _fetch_booking(cursor, booking_id)
 
@@ -1658,7 +1716,7 @@ def create_booking(req: BookingCreateRequest):
             )
 
         conn.commit()
-        return BookingResponse(**booking)
+        return _booking_for_viewer(booking, "client")
     except HTTPException:
         conn.rollback()
         raise
@@ -1681,7 +1739,8 @@ def list_bookings(client_id: Optional[str] = None, provider_id: Optional[str] = 
         bookings = _fetch_bookings(cursor, column, value)
     finally:
         conn.close()
-    return [BookingResponse(**b) for b in bookings]
+    viewer = "client" if client_id else "provider"
+    return [_booking_for_viewer(b, viewer) for b in bookings]
 
 
 @app.patch("/bookings/{booking_id}/status", response_model=BookingResponse)
@@ -1732,7 +1791,7 @@ def update_booking_status(booking_id: int, req: BookingStatusUpdate):
 
         updated = _fetch_booking(cursor, booking_id)
         conn.commit()
-        return BookingResponse(**updated)
+        return _booking_for_viewer(updated, actor)
     except HTTPException:
         conn.rollback()
         raise
@@ -1789,7 +1848,7 @@ def propose_reschedule(booking_id: int, req: RescheduleProposal):
         )
         updated = _fetch_booking(cursor, booking_id)
         conn.commit()
-        return BookingResponse(**updated)
+        return _booking_for_viewer(updated, actor)
     except psycopg2.errors.UniqueViolation:
         conn.rollback()
         raise HTTPException(409, "This booking already has a reschedule request waiting for an answer.")
@@ -1857,7 +1916,7 @@ def answer_reschedule(booking_id: int, req: RescheduleDecision):
         _notify_counterpart(cursor, booking, actor, message)
         updated = _fetch_booking(cursor, booking_id)
         conn.commit()
-        return BookingResponse(**updated)
+        return _booking_for_viewer(updated, actor)
     except Exception:
         conn.rollback()
         raise
@@ -1905,7 +1964,7 @@ def create_booking_review(booking_id: int, req: ReviewCreateRequest):
                                  f"New {req.rating}/5 review for booking #{booking_id}. View it in your jobs.")
         updated = _fetch_booking(cursor, booking_id)
         conn.commit()
-        return BookingResponse(**updated)
+        return _booking_for_viewer(updated, "client")
     except psycopg2.errors.UniqueViolation:
         conn.rollback()
         raise HTTPException(409, "This booking already has a review.")

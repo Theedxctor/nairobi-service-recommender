@@ -12,6 +12,8 @@ CREATE_BODY = {
     "client_area": "Kilimani",
     "time_slot": "morning_rush",
     "day_type": "weekday",
+    # Area-only bookings need directions (#105); see test_booking_location.py.
+    "location_details": "Galana Plaza, Apt 4B",
 }
 
 

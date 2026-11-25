@@ -1,5 +1,5 @@
 import { test, expect, request } from "@playwright/test";
-import { API, JOB_DATE, createClient, createProvider, login, retireProvider, waitForRequestForm } from "./fixtures";
+import { API, DIRECTIONS, JOB_DATE, createClient, createProvider, login, retireProvider, waitForRequestForm } from "./fixtures";
 
 // #82: a request is for a calendar date. Availability is checked for that
 // date's weekday, and the date is stored on the booking and shown to both sides.
@@ -67,7 +67,7 @@ test("a request is for a date: availability follows its weekday and the booking 
     // ...and cannot be booked for it even by calling the API directly.
     const refused = await api.post(`${API}/bookings`, {
       data: { client_id: client.clientId, provider_id: provider.providerId, client_area: "Kilimani",
-              time_slot: "midday", job_date: OTHER_DATE },
+              time_slot: "midday", job_date: OTHER_DATE, location_details: DIRECTIONS },
     });
     expect(refused.status()).toBe(409);
 
@@ -88,6 +88,7 @@ test("a request is for a date: availability follows its weekday and the booking 
     await link.click();
     await page.waitForURL(`**/booking?provider=${provider.providerId}`);
     await expect(page.getByText(pretty(JOB_DATE))).toBeVisible();
+    await page.fill("#directions", DIRECTIONS);
     await page.click("text=Send booking request");
     await page.waitForURL("**/booking?id=*");
     const id = Number(new URL(page.url()).searchParams.get("id"));

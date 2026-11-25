@@ -1,5 +1,5 @@
 import { test, expect, request } from "@playwright/test";
-import { API, RECOMMEND_BODY, createClient, createProvider, login, retireProvider } from "./fixtures";
+import { API, DIRECTIONS, RECOMMEND_BODY, createClient, createProvider, login, retireProvider } from "./fixtures";
 
 test("provider accepts and completes a booking; notifications and cold-start explanation", async ({ browser }) => {
   const client = await createClient();
@@ -10,7 +10,7 @@ test("provider accepts and completes a booking; notifications and cold-start exp
   // Book via the API so this spec targets exactly our provider (the UI path for
   // new providers is covered in new-providers.spec.ts).
   const res = await api.post(`${API}/bookings`, {
-    data: { client_id: client.clientId, provider_id: provider.providerId, ...RECOMMEND_BODY },
+    data: { client_id: client.clientId, provider_id: provider.providerId, ...RECOMMEND_BODY, location_details: DIRECTIONS },
   });
   expect(res.status(), await res.text()).toBe(201);
   const id = (await res.json()).booking_id as number;
@@ -39,7 +39,7 @@ test("provider accepts and completes a booking; notifications and cold-start exp
     data: { client_area: "Kilimani", provider_id: provider.providerId, time_slot: "midday", day_type: "weekday" },
   });
   expect(pred.ok()).toBeTruthy();
-  expect((await pred.json()).explanation).toContain("new provider with no job history");
+  expect((await pred.json()).explanation).toContain("New provider with no job history");
   await api.dispose();
   } finally {
     await retireProvider(provider);

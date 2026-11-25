@@ -101,6 +101,9 @@ function nextWeekday(): string {
 
 export const JOB_DATE = nextWeekday();
 
+// Area-only bookings need written directions (#105).
+export const DIRECTIONS = "E2E test: Argwings Kodhek Rd, Galana Plaza, Apt 4B. Call at the gate.";
+
 export const RECOMMEND_BODY = {
   client_area: "Kilimani",
   service_type: "plumber",

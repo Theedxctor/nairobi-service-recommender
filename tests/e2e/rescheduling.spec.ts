@@ -1,5 +1,5 @@
 import { test, expect, request } from "@playwright/test";
-import { API, JOB_DATE, RECOMMEND_BODY, createClient, createProvider, login, retireProvider } from "./fixtures";
+import { API, DIRECTIONS, JOB_DATE, RECOMMEND_BODY, createClient, createProvider, login, retireProvider } from "./fixtures";
 
 // #83: either party asks to move a booking to another date or time slot. The
 // booking only changes when the other party accepts, and its predicted
@@ -38,7 +38,7 @@ test("a booking is moved only when the other party accepts, with a recomputed sc
 
   try {
     const created = await api.post(`${API}/bookings`, {
-      data: { client_id: client.clientId, provider_id: provider.providerId, ...RECOMMEND_BODY },
+      data: { client_id: client.clientId, provider_id: provider.providerId, ...RECOMMEND_BODY, location_details: DIRECTIONS },
     });
     expect(created.status(), await created.text()).toBe(201);
     const original = await created.json();
