@@ -63,11 +63,18 @@ def test_is_verified_matches_reference_data(everyone):
     assert {p["is_verified"] for p in everyone} == {True, False}
 
 
+def _without_comparison(cards):
+    """Cards minus the "Behind #1 ..." sentence (#103), which is relative to
+    whichever provider is first in the filtered list, so it legitimately
+    changes when a filter removes the unfiltered #1."""
+    return [{**c, "explanation": c["explanation"].split(". Behind #1")[0]} for c in cards]
+
+
 def test_price_limit_keeps_order_and_reaches_past_the_top_10(client, everyone):
     limit = sorted(p["hourly_rate_ksh"] for p in everyone)[len(everyone) // 3]
     expected = [p for p in everyone if p["hourly_rate_ksh"] <= limit][:10]
     got = _recommend(client, max_hourly_rate_ksh=limit)
-    assert got == expected
+    assert _without_comparison(got) == _without_comparison(expected)
     assert all(p["hourly_rate_ksh"] <= limit for p in got)
     # Filtering only the 10 cards already on screen would have missed these.
     assert set(_ids(got)) - set(_ids(everyone[:10]))

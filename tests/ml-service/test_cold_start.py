@@ -64,8 +64,8 @@ def test_new_provider_scored_as_median_provider_and_explained(client, with_new_p
     expected, _ = api._score_provider("Kilimani", median_twin, "midday", "weekday")
 
     assert new["reliability_score"] == pytest.approx(round(expected, 4))
-    assert "new provider with no job history" in new["explanation"]
-    assert "strong historical completion rate" not in new["explanation"]
+    assert "New provider with no job history" in new["explanation"]
+    assert "completion record" not in new["explanation"]  # assumed, not earned
 
 
 def test_recommend_returns_null_rating_for_new_provider(client, with_new_provider, monkeypatch):
@@ -93,7 +93,7 @@ def test_registered_provider_is_scorable_without_restart(client, monkeypatch):
 
     predicted = client.post("/predict", json={**PREDICT_BODY, "provider_id": "P9999"})
     assert predicted.status_code == 200
-    assert "new provider" in predicted.json()["explanation"]
+    assert "New provider" in predicted.json()["explanation"]
 
 
 # ---------------------------------------------------------------------------

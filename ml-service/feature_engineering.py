@@ -161,13 +161,30 @@ def lookup_area(area_name, areas_df):
     return row.iloc[0]
 
 
-def lookup_traffic(provider_area_id, time_slot, day_type, traffic_df):
+def _normalize_slot(time_slot, day_type):
     slot = str(time_slot).strip().lower()
     dtype = str(day_type).strip().lower()
-
     if slot in ["weekend_day", "weekend"]:
         slot = "midday"
         dtype = "weekend"
+    return slot, dtype
+
+
+def has_area_traffic(provider_area_id, time_slot, day_type, traffic_df):
+    """True if the traffic data has a corridor for this area at this time.
+    False means lookup_traffic falls back to another area's row, and the
+    explanation says so (#103). Kilimani, Lavington, Kileleshwa and Dagoretti
+    have no corridor in traffic_patterns."""
+    slot, dtype = _normalize_slot(time_slot, day_type)
+    return bool((
+        (traffic_df.area_id == provider_area_id)
+        & (traffic_df.time_slot.str.lower() == slot)
+        & (traffic_df.day_type.str.lower() == dtype)
+    ).any())
+
+
+def lookup_traffic(provider_area_id, time_slot, day_type, traffic_df):
+    slot, dtype = _normalize_slot(time_slot, day_type)
 
     match = traffic_df[
         (traffic_df.area_id == provider_area_id)
@@ -244,6 +261,11 @@ def build_feature_row(client_area, provider_row, time_slot, day_type, ref, cache
         lambda: lookup_traffic(prov_area_row.area_id, time_slot, day_type, ref["traffic"]),
     )
 
+    traffic_is_default = not memo(
+        ("has_traffic", prov_area_row.area_id, time_slot, day_type),
+        lambda: has_area_traffic(prov_area_row.area_id, time_slot, day_type, ref["traffic"]),
+    )
+
     # Avoid 0.0 min ETA: realistic minimum travel/dispatch time in urban traffic is ~4.0 min
     raw_travel_min = (distance_km / max(avg_speed_kmh, 1)) * 60
     estimated_travel_min = round(max(float(raw_travel_min), 4.0), 1)
@@ -265,6 +287,7 @@ def build_feature_row(client_area, provider_row, time_slot, day_type, ref, cache
         # --- extra context, for display/explanation only, not fed to the model ---
         "provider_has_history": bool(has_history),
         "primary_corridor": corridor,
+        "traffic_is_default": traffic_is_default,
         "avg_speed_kmh": avg_speed_kmh,
         "estimated_travel_min": estimated_travel_min,
         "client_area_road_quality": client_row.road_quality,
